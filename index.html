@@ -206,7 +206,7 @@ tbody tr.row-empty    { opacity: 0.38; }
 
 <header>
   <div>
-    <h1>Cycle Dashboard</h1>
+    <h1>Fertility Awareness</h1>
     <div class="sub">Basal Body Temperature Tracker</div>
   </div>
   <button class="refresh-btn" onclick="loadData()">&#8635; Refresh</button>
@@ -413,7 +413,7 @@ function render(cycles) {
       <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Day</th><th>Date</th><th>Temp</th>
+          <th>Day</th><th>Date</th><th>Temp</th><th class="hide-sm">Time</th>
           <th class="hide-sm">Cervix</th>
           <th class="hide-sm">Mucus</th>
           <th class="hide-sm">Breasts</th>
@@ -558,6 +558,7 @@ function buildLogRows(cycle) {
       <td>${r.Day}</td>
       <td style="white-space:nowrap">${r.Date}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
+      <td class="hide-sm" style="white-space:nowrap">${r.Time || ''}</td>
       <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
       <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
       <td class="hide-sm">${r.Breasts || ''}</td>
