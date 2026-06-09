@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cycle Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f0f8;
+  color: #2d2d2d;
+  min-height: 100vh;
+}
+
+header {
+  background: linear-gradient(135deg, #7b1fa2 0%, #4a148c 100%);
+  color: white;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 10px rgba(74,20,140,0.35);
+}
+header h1 { font-size: 1.3rem; font-weight: 600; letter-spacing: -0.2px; }
+header .sub { font-size: 0.78rem; opacity: 0.72; margin-top: 3px; }
+.refresh-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.35);
+  color: white;
+  padding: 7px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.refresh-btn:hover { background: rgba(255,255,255,0.25); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
+
+/* ── Stats cards ──────────────────────────────────── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.card .lbl {
+  font-size: 0.68rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  margin-bottom: 6px;
+}
+.card .val {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #4a148c;
+  line-height: 1;
+}
+.card .hint { font-size: 0.75rem; color: #888; margin-top: 5px; }
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.menstrual  { background: #fce4ec; color: #b71c1c; }
+.follicular { background: #e3f2fd; color: #0d47a1; }
+.ovulation  { background: #e8f5e9; color: #1b5e20; }
+.luteal     { background: #fff8e1; color: #e65100; }
+
+/* ── Section cards ────────────────────────────────── */
+.section {
+  background: white;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  margin-bottom: 16px;
+}
+.section h2 {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #7b1fa2;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 14px;
+}
+
+/* ── Chart ────────────────────────────────────────── */
+.chart-wrap { position: relative; height: 270px; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: #666; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.dash-line { width: 18px; height: 2px; flex-shrink: 0; }
+
+/* ── Tables ───────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+thead th {
+  text-align: left;
+  padding: 8px 10px;
+  background: #f5f0f8;
+  color: #7b1fa2;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+tbody td { padding: 7px 10px; border-bottom: 1px solid #f0eef5; vertical-align: top; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.row-blood    { background: #fff5f8; }
+tbody tr.row-ovul     { background: #f5fff6; }
+tbody tr.row-empty    { opacity: 0.38; }
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.tag-blood { background: #fce4ec; color: #b71c1c; }
+.tag-ovul  { background: #e8f5e9; color: #1b5e20; }
+
+/* ── Footer ───────────────────────────────────────── */
+.footer { text-align: center; font-size: 0.7rem; color: #bbb; padding: 10px 0 24px; }
+
+/* ── Loading / error ──────────────────────────────── */
+.spinner { text-align: center; padding: 70px 20px; color: #aaa; font-size: 0.9rem; line-height: 1.8; }
+.spinner button {
+  margin-top: 12px;
+  padding: 8px 22px;
+  background: #7b1fa2;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* ── Overlay controls ─────────────────────────────── */
+.overlay-controls {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.trim-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  color: #666;
+  cursor: pointer;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ── Log section header ───────────────────────────── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.section-header h2 { margin-bottom: 0; }
+.cycle-select {
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  border: 1px solid #d1c4e9;
+  border-radius: 8px;
+  color: #4a148c;
+  background: white;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ── Responsive ───────────────────────────────────── */
+@media (max-width: 620px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .chart-wrap { height: 210px; }
+  .hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Cycle Dashboard</h1>
+    <div class="sub">Basal Body Temperature Tracker</div>
+  </div>
+  <button class="refresh-btn" onclick="loadData()">&#8635; Refresh</button>
+</header>
+
+<main>
+  <div id="app"><div class="spinner">Loading data from Google Sheets&hellip;</div></div>
+</main>
+
+<script>
+const SHEET_ID = '1F3Wym_3tzcjF7rurMvI-mb1uv0jz9XcwAYaOacvJHWA';
+
+let timelineChart   = null;
+let overlayChart    = null;
+let _scriptEl       = null;
+let allCycles        = null;
+let overlaySpanGaps  = true;
+let selectedLogCycle = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function splitCycles(rows) {
+  const cycles = [];
+  let cur = [];
+  for (const r of rows) {
+    const d = parseInt(r.Day);
+    if (isNaN(d)) continue;
+    if (d === 1 && cur.length > 0) { cycles.push(cur); cur = []; }
+    cur.push(r);
+  }
+  if (cur.length > 0) cycles.push(cur);
+  return cycles;
+}
+
+function hasData(r) {
+  return r.Temp || r['Cervix Texture'] || r['Cervical Mucus'] || r.Breasts || r.Cycle || r.Note;
+}
+
+function detectPhase(cycle) {
+  const last5 = cycle.slice(-5);
+  if (last5.some(r => r.Cycle === 'Blood')) return 'menstrual';
+  if (last5.some(r => r.Cycle === 'Ovulation')) return 'ovulation';
+  // Luteal only if an Ovulation marker has been logged earlier this cycle
+  if (cycle.some(r => r.Cycle === 'Ovulation')) return 'luteal';
+  return 'follicular';
+}
+
+function detectOvDay(cycle) {
+  const ov = cycle.find(r => r.Cycle === 'Ovulation');
+  if (ov) return parseInt(ov.Day);
+  const ew = cycle.find(r => (r['Cervical Mucus'] || '').toLowerCase().includes('egg'));
+  if (ew) return parseInt(ew.Day);
+  return null;
+}
+
+// Returns coverline (max of 6 pre-ovulation temps + 0.1°F), or null if no ovulation marked.
+function calcCoverline(cycle) {
+  const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
+  if (ovIdx < 0) return null;
+  const preTemps = cycle
+    .slice(Math.max(0, ovIdx - 6), ovIdx)
+    .filter(r => r.Temp)
+    .map(r => parseFloat(r.Temp));
+  if (!preTemps.length) return null;
+  return parseFloat((Math.max(...preTemps) + 0.1).toFixed(2));
+}
+
+// Find the index of the last row that actually has logged data
+function lastDataIndex(cycle) {
+  for (let i = cycle.length - 1; i >= 0; i--) {
+    if (hasData(cycle[i])) return i;
+  }
+  return cycle.length - 1;
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+
+function render(cycles) {
+  const current  = cycles[cycles.length - 1];
+  const past     = cycles.slice(0, -1);
+  const currentCoverline = calcCoverline(current); // null until ovulation is marked
+
+  const phase      = detectPhase(current);
+  const phaseLabel = { menstrual:'Menstrual', follicular:'Follicular', ovulation:'Ovulation', luteal:'Luteal' }[phase];
+
+  const lengths  = past.map(c => c.length);
+  const avg      = lengths.length ? Math.round(lengths.reduce((a,b) => a+b, 0) / lengths.length) : null;
+
+  const ldIdx      = lastDataIndex(current);
+  const dayNumber  = parseInt(current[ldIdx].Day);
+  const daysLeft   = avg ? Math.max(0, avg - dayNumber) : null;
+
+  // Estimate next period date from cycle start + avg length
+  const nextPeriodDate = (() => {
+    if (!avg || !current[0]?.Date) return null;
+    const yr = new Date().getFullYear();
+    for (const y of [yr, yr - 1]) {
+      const d = new Date(`${current[0].Date} ${y}`);
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + avg);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    }
+    return null;
+  })();
+
+  const lastTempRow = [...current].reverse().find(r => r.Temp);
+  const lastTemp    = lastTempRow ? parseFloat(lastTempRow.Temp).toFixed(2) : '—';
+  const aboveLine   = (lastTempRow && currentCoverline != null)
+    ? parseFloat(lastTempRow.Temp) > currentCoverline : null;
+
+  // ── Stats cards ──────────────────────────────────────────────────────────
+  const statsHTML = `
+    <div class="stats">
+      <div class="card">
+        <div class="lbl">Cycle Day</div>
+        <div class="val">${dayNumber}</div>
+        <div class="hint">Started ${current[0]?.Date || '—'}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Current Phase</div>
+        <div class="val" style="font-size:1.5rem;padding-top:6px">${phaseLabel}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Last Temp</div>
+        <div class="val">${lastTemp}<span style="font-size:1rem;font-weight:400">&deg;</span></div>
+        <div class="hint">${aboveLine === null ? '' : (aboveLine ? 'Above' : 'Below') + ` coverline (${currentCoverline.toFixed(2)}&deg;)`}</div>
+      </div>
+      <div class="card">
+        <div class="lbl">Avg Cycle Length</div>
+        <div class="val">${avg ?? '—'}<span style="font-size:1rem;font-weight:400"> days</span></div>
+        <div class="hint">${lengths.length} complete cycle${lengths.length !== 1 ? 's' : ''}</div>
+      </div>
+      ${avg != null ? `<div class="card">
+        <div class="lbl">Next Period Est.</div>
+        <div class="val" style="font-size:1.1rem;padding-top:4px">${nextPeriodDate ?? '—'}</div>
+        <div class="hint">~${daysLeft} days away &middot; ${avg}-day avg</div>
+      </div>` : ''}
+    </div>`;
+
+  // ── Chart section — timeline + overlay ───────────────────────────────────
+  const cycleColors = ['#1e88e5','#e53935','#fb8c00','#43a047','#8e24aa'];
+  const chartHTML = `
+    <div class="section">
+      <h2>BBT &mdash; Full Timeline</h2>
+      <div class="legend">
+        <div class="legend-item"><div class="dot" style="background:#1e88e5"></div>Temperature</div>
+        <div class="legend-item"><div class="dash-line" style="background:#9e9e9e"></div>Coverline (per cycle, max pre-ov + 0.1&deg;)</div>
+        <div class="legend-item"><div class="dot" style="background:#e53935"></div>Menstrual</div>
+        <div class="legend-item"><div class="dot" style="background:#ab47bc"></div>Ovulation</div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
+    </div>
+    <div class="section">
+      <h2>Cycle Comparison &mdash; by Day Number</h2>
+      <div class="overlay-controls">
+        <label class="trim-label">
+          <input type="checkbox" id="spanToggle" checked
+            onchange="overlaySpanGaps=this.checked;drawOverlayChart(allCycles)">
+          Connect missing days
+        </label>
+      </div>
+      <div class="chart-wrap"><canvas id="chartOverlay"></canvas></div>
+    </div>`;
+
+  // ── Cycle history table ───────────────────────────────────────────────────
+  const historyHTML = past.length ? `
+    <div class="section">
+      <h2>Cycle History</h2>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Cycle</th><th>Start Date</th><th>Length</th><th>Ovulation</th>
+        </tr></thead>
+        <tbody>
+          ${past.map((c, i) => `<tr>
+            <td>Cycle ${i + 1}</td>
+            <td>${c[0]?.Date || '—'}</td>
+            <td>${c.length} days</td>
+            <td>${detectOvDay(c) != null ? `Day ${detectOvDay(c)}` : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>` : '';
+
+  // ── Daily log table ───────────────────────────────────────────────────────
+  // Default to current cycle; preserve selection across auto-refreshes
+  if (selectedLogCycle === null || selectedLogCycle >= cycles.length) {
+    selectedLogCycle = cycles.length - 1;
+  }
+
+  const cycleOptions = cycles.map((c, i) => `
+    <option value="${i}" ${i === selectedLogCycle ? 'selected' : ''}>
+      Cycle ${i + 1} &mdash; ${c[0]?.Date || '?'}${i === cycles.length - 1 ? ' (Current)' : ''}
+    </option>`).join('');
+
+  const logHTML = `
+    <div class="section">
+      <div class="section-header">
+        <h2>Daily Log</h2>
+        <select class="cycle-select" onchange="onLogCycleChange(this.value)">${cycleOptions}</select>
+      </div>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Day</th><th>Date</th><th>Temp</th>
+          <th class="hide-sm">Cervix</th>
+          <th class="hide-sm">Mucus</th>
+          <th class="hide-sm">Breasts</th>
+          <th>Phase</th><th>Note</th>
+        </tr></thead>
+        <tbody id="logTableBody">${buildLogRows(cycles[selectedLogCycle])}</tbody>
+      </table>
+      </div>
+    </div>`;
+
+  const footerHTML = `<div class="footer">Last updated ${new Date().toLocaleTimeString()} &nbsp;&middot;&nbsp; Auto-refreshes every 10 minutes</div>`;
+
+  allCycles = cycles;
+
+  document.getElementById('app').innerHTML = statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
+
+  drawTimelineChart(cycles);
+  drawOverlayChart(cycles);
+}
+
+// ── Shared chart options helpers ───────────────────────────────────────────
+
+function yRange(temps) {
+  const valid = temps.flat().filter(Boolean);
+  if (!valid.length) return { min: 97.0, max: 99.0 };
+  return {
+    min: Math.floor((Math.min(...valid) - 0.25) * 4) / 4,
+    max: Math.ceil( (Math.max(...valid) + 0.25) * 4) / 4,
+  };
+}
+
+function baseOptions(xTicks, yMinMax, tooltipExtra) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: tooltipExtra || {} },
+    },
+    scales: {
+      x: {
+        ticks: { font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 18, ...xTicks },
+        grid: { color: 'rgba(0,0,0,0.04)' },
+      },
+      y: {
+        ...yMinMax,
+        ticks: { font: { size: 11 }, callback: v => v.toFixed(2) },
+        grid: { color: 'rgba(0,0,0,0.06)' },
+      },
+    },
+  };
+}
+
+// ── Chart 1: Full timeline ─────────────────────────────────────────────────
+
+function drawTimelineChart(cycles) {
+  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+
+  const allRows = cycles.flat();
+  const labels  = allRows.map(r => r.Date);
+  const temps   = allRows.map(r => r.Temp ? parseFloat(r.Temp) : null);
+
+  // Per-cycle coverline: calculated value for cycles with an ovulation marker, null otherwise.
+  // Chart.js with spanGaps:false will draw a separate segment per cycle automatically.
+  const clLine = cycles.flatMap(cycle => {
+    const cl = calcCoverline(cycle);
+    return cycle.map(() => cl);
+  });
+
+  const ptColors = allRows.map(r =>
+    r.Cycle === 'Blood'     ? '#e53935' :
+    r.Cycle === 'Ovulation' ? '#ab47bc' : '#1e88e5'
+  );
+  const ptSizes = allRows.map(r => r.Temp ? (r.Cycle ? 6 : 4) : 0);
+
+  // draw cycle separator lines via vertical annotations approximated with segment colors
+  const { min, max } = yRange([temps]);
+
+  timelineChart = new Chart(document.getElementById('chartTimeline').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Temp',
+          data: temps,
+          borderColor: '#1e88e5',
+          borderWidth: 2,
+          pointBackgroundColor: ptColors,
+          pointBorderColor: ptColors,
+          pointRadius: ptSizes,
+          pointHoverRadius: 7,
+          tension: 0.2,
+          spanGaps: false,
+          fill: false,
+          order: 1,
+        },
+        {
+          label: 'Divider',
+          data: clLine,
+          borderColor: '#9e9e9e',
+          borderWidth: 1.5,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          fill: false,
+          order: 2,
+        },
+      ],
+    },
+    options: {
+      ...baseOptions({}, { min, max }, {
+        title: (items) => labels[items[0].dataIndex],
+        afterBody: (items) => {
+          const r = allRows[items[0].dataIndex];
+          if (!r) return [];
+          return [
+            r.Cycle ? `Phase: ${r.Cycle}` : '',
+            r['Cervical Mucus'] ? `Mucus: ${r['Cervical Mucus']}` : '',
+            r['Cervix Texture'] ? `Cervix: ${r['Cervix Texture']}` : '',
+            r.Breasts ? `Breasts: ${r.Breasts}` : '',
+            r.Note ? `Note: ${r.Note}` : '',
+          ].filter(Boolean);
+        },
+      }),
+    },
+  });
+}
+
+// ── Chart 2: Cycle overlay ─────────────────────────────────────────────────
+
+function buildLogRows(cycle) {
+  return cycle.map(r => {
+    const empty = !hasData(r);
+    const rowClass = r.Cycle === 'Blood' ? 'row-blood' : r.Cycle === 'Ovulation' ? 'row-ovul' : empty ? 'row-empty' : '';
+    const cycleTag = r.Cycle === 'Blood'
+      ? '<span class="tag tag-blood">Blood</span>'
+      : r.Cycle === 'Ovulation'
+      ? '<span class="tag tag-ovul">Ovulation</span>'
+      : '';
+    return `<tr class="${rowClass}">
+      <td>${r.Day}</td>
+      <td style="white-space:nowrap">${r.Date}</td>
+      <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
+      <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
+      <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
+      <td class="hide-sm">${r.Breasts || ''}</td>
+      <td>${cycleTag}</td>
+      <td>${r.Note || ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function onLogCycleChange(val) {
+  selectedLogCycle = parseInt(val);
+  document.getElementById('logTableBody').innerHTML = buildLogRows(allCycles[selectedLogCycle]);
+}
+
+function drawOverlayChart(cycles) {
+  if (overlayChart) { overlayChart.destroy(); overlayChart = null; }
+
+  const colors  = ['#1e88e5', '#e53935', '#fb8c00', '#43a047', '#8e24aa'];
+  const maxLen  = Math.max(...cycles.map(c => c.length));
+  const labels  = Array.from({ length: maxLen }, (_, i) => i + 1);
+
+  const datasets = cycles
+    .map((cycle, i) => {
+      // Always trim trailing nulls so lines end at last logged temp
+      const lastTempIdx = cycle.reduce((max, r, j) => r.Temp ? j : max, -1);
+      const display = lastTempIdx >= 0 ? cycle.slice(0, lastTempIdx + 1) : cycle;
+
+      const data = labels.map((_, j) => {
+        const row = display[j];
+        return row && row.Temp ? parseFloat(row.Temp) : null;
+      });
+
+      return {
+        label: cycle[0]?.Date || `Cycle ${i + 1}`,
+        data,
+        borderColor: colors[i % colors.length],
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+        tension: 0.2,
+        spanGaps: overlaySpanGaps,
+        fill: false,
+      };
+    });
+
+  const allTemps = cycles.flatMap(c => c.map(r => r.Temp ? parseFloat(r.Temp) : null));
+  const { min, max } = yRange([allTemps]);
+
+  overlayChart = new Chart(document.getElementById('chartOverlay').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      ...baseOptions(
+        { callback: (_, i) => i + 1 },
+        { min, max },
+        {
+          title: (items) => `Day ${items[0].dataIndex + 1}`,
+          afterBody: (items) => {
+            return cycles.map((c, ci) => {
+              const row = c[items[0].dataIndex];
+              if (!row || !row.Temp) return '';
+              return `${row.Date}: ${parseFloat(row.Temp).toFixed(2)}°${row.Cycle ? ' (' + row.Cycle + ')' : ''}`;
+            }).filter(Boolean);
+          },
+        }
+      ),
+      plugins: {
+        ...baseOptions({}, {}, {}).plugins,
+        legend: {
+          display: true,
+          labels: { font: { size: 11 }, boxWidth: 14, padding: 12 },
+        },
+      },
+    },
+  });
+}
+
+// ── Data load ──────────────────────────────────────────────────────────────
+
+function showError(msg) {
+  document.getElementById('app').innerHTML = `
+    <div class="spinner">
+      Could not load data.<br>
+      <small>${msg}</small><br>
+      <button onclick="loadData()">Retry</button>
+    </div>`;
+}
+
+function loadData() {
+  // Remove any previously injected script tag
+  if (_scriptEl && _scriptEl.parentNode) _scriptEl.parentNode.removeChild(_scriptEl);
+
+  // Google Visualization API supports JSONP — works from file:// and any origin
+  window._sheetCallback = function(resp) {
+    try {
+      const cols = resp.table.cols.map(c => c.label);
+      const rows = resp.table.rows.map(row => {
+        const obj = {};
+        (row.c || []).forEach((cell, i) => {
+          // cell can be null (empty) or {v, f} — prefer formatted string f over raw v
+          obj[cols[i]] = (cell && cell.v !== null && cell.v !== undefined)
+            ? String(cell.f !== undefined && cell.f !== null ? cell.f : cell.v)
+            : '';
+        });
+        return obj;
+      });
+      const filtered = rows.filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
+      const cycles   = splitCycles(filtered);
+      if (cycles.length === 0) throw new Error('No cycle data found in sheet');
+      render(cycles);
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  _scriptEl = document.createElement('script');
+  _scriptEl.onerror = () => showError('Could not reach Google Sheets — check your internet connection');
+  _scriptEl.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:_sheetCallback`;
+  document.head.appendChild(_scriptEl);
+}
+
+loadData();
+setInterval(loadData, 10 * 60 * 1000);
+</script>
+</body>
+</html>
