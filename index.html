@@ -398,6 +398,10 @@ function render(cycles) {
     </div>
     <div class="section">
       <h2>Cycle Comparison &mdash; by Day Number</h2>
+      <div class="legend">
+        <div class="legend-item"><div class="dot" style="background:#e53935"></div>Menstrual</div>
+        <div class="legend-item"><div style="width:12px;height:14px;background:rgba(30,136,229,0.18);border:1px solid #1e88e5;border-radius:2px"></div>Ovulation day (color matches cycle)</div>
+      </div>
       <div class="overlay-controls">
         <label class="trim-label">
           <input type="checkbox" id="spanToggle" checked
@@ -616,36 +620,75 @@ function drawOverlayChart(cycles) {
   const maxLen  = Math.max(...cycles.map(c => c.length));
   const labels  = Array.from({ length: maxLen }, (_, i) => i + 1);
 
-  const datasets = cycles
-    .map((cycle, i) => {
-      // Always trim trailing nulls so lines end at last logged temp
-      const lastTempIdx = cycle.reduce((max, r, j) => r.Temp ? j : max, -1);
-      const display = lastTempIdx >= 0 ? cycle.slice(0, lastTempIdx + 1) : cycle;
+  // Ovulation band data: one entry per cycle that has a confirmed ovulation day
+  const ovBands = cycles.map((cycle, i) => {
+    const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
+    return ovIdx >= 0 ? { idx: ovIdx, color: colors[i % colors.length] } : null;
+  }).filter(Boolean);
 
-      const data = labels.map((_, j) => {
-        const row = display[j];
-        return row && row.Temp ? parseFloat(row.Temp) : null;
-      });
+  const datasets = cycles.map((cycle, i) => {
+    const lastTempIdx = cycle.reduce((max, r, j) => r.Temp ? j : max, -1);
+    const display = lastTempIdx >= 0 ? cycle.slice(0, lastTempIdx + 1) : cycle;
 
-      return {
-        label: cycle[0]?.Date || `Cycle ${i + 1}`,
-        data,
-        borderColor: colors[i % colors.length],
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 6,
-        tension: 0.2,
-        spanGaps: overlaySpanGaps,
-        fill: false,
-      };
+    const data = labels.map((_, j) => {
+      const row = display[j];
+      return row && row.Temp ? parseFloat(row.Temp) : null;
     });
+
+    // Red dot for blood days, cycle color otherwise
+    const ptColors = labels.map((_, j) => {
+      const row = cycle[j];
+      return (row && row.Cycle === 'Blood') ? '#e53935' : colors[i % colors.length];
+    });
+    const ptSizes = labels.map((_, j) => {
+      const row = display[j];
+      if (!row || !row.Temp) return 0;
+      return (cycle[j] && cycle[j].Cycle === 'Blood') ? 7 : 3;
+    });
+
+    return {
+      label: cycle[0]?.Date || `Cycle ${i + 1}`,
+      data,
+      borderColor: colors[i % colors.length],
+      borderWidth: 2,
+      pointRadius: ptSizes,
+      pointHoverRadius: 6,
+      pointBackgroundColor: ptColors,
+      pointBorderColor: ptColors,
+      tension: 0.2,
+      spanGaps: overlaySpanGaps,
+      fill: false,
+    };
+  });
 
   const allTemps = cycles.flatMap(c => c.map(r => r.Temp ? parseFloat(r.Temp) : null));
   const { min, max } = yRange([allTemps]);
 
+  // Inline plugin to draw vertical ovulation bands behind the data
+  const ovBandPlugin = {
+    id: 'ovBands',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      ctx.save();
+      ovBands.forEach(({ idx, color }) => {
+        const xCenter = scales.x.getPixelForValue(idx);
+        const tickWidth = maxLen > 1
+          ? Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
+          : 20;
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = color;
+        ctx.fillRect(xCenter - tickWidth / 2, chartArea.top, tickWidth, chartArea.bottom - chartArea.top);
+      });
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    },
+  };
+
   overlayChart = new Chart(document.getElementById('chartOverlay').getContext('2d'), {
     type: 'line',
     data: { labels, datasets },
+    plugins: [ovBandPlugin],
     options: {
       ...baseOptions(
         { callback: (_, i) => i + 1 },
@@ -653,7 +696,7 @@ function drawOverlayChart(cycles) {
         {
           title: (items) => `Day ${items[0].dataIndex + 1}`,
           afterBody: (items) => {
-            return cycles.map((c, ci) => {
+            return cycles.map((c) => {
               const row = c[items[0].dataIndex];
               if (!row || !row.Temp) return '';
               return `${row.Date}: ${parseFloat(row.Temp).toFixed(2)}°${row.Cycle ? ' (' + row.Cycle + ')' : ''}`;
