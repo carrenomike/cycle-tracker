@@ -328,7 +328,9 @@ function render(cycles) {
     ? parseFloat(lastTempRow.Temp) > currentCoverline : null;
 
   // ── Safe-sex status ──────────────────────────────────────────────────────
-  const ovDay = detectOvDay(current);
+  // Use only the hard Ovulation marker — never estimates from mucus data.
+  const confirmedOv = current.find(r => r.Cycle === 'Ovulation');
+  const ovDay = confirmedOv ? parseInt(confirmedOv.Day) : null;
   let safeStatus, safeClass, safeHint;
   if (ovDay == null) {
     safeStatus = 'Unknown';
