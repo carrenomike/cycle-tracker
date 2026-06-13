@@ -332,26 +332,22 @@ function render(cycles) {
   const confirmedOv = current.find(r => r.Cycle === 'Ovulation');
   const ovDay = confirmedOv ? parseInt(confirmedOv.Day) : null;
   let safeStatus, safeClass, safeHint;
-  if (ovDay == null) {
-    safeStatus = 'Unknown';
-    safeClass  = 'unknown';
-    safeHint   = 'Ovulation not yet marked this cycle';
-  } else if (dayNumber >= ovDay + 4) {
+  const isSafe = ovDay != null && dayNumber < ovDay - 6 || ovDay != null && dayNumber >= ovDay + 4;
+  let safeStatus, safeClass, safeHint;
+  if (isSafe) {
     safeStatus = 'Safe';
     safeClass  = 'safe';
-    safeHint   = `${dayNumber - ovDay} days past ovulation (Day ${ovDay})`;
-  } else if (dayNumber >= ovDay - 6) {
-    // within the unsafe window: 6 days before through 3 days after
-    const daysToSafe = (ovDay + 4) - dayNumber;
-    safeStatus = dayNumber <= ovDay ? 'Unsafe' : 'Caution';
-    safeClass  = dayNumber <= ovDay ? 'unsafe' : 'caution';
-    safeHint   = dayNumber <= ovDay
-      ? `${ovDay - dayNumber} day${ovDay - dayNumber !== 1 ? 's' : ''} until ovulation (Day ${ovDay})`
-      : `Safe in ${daysToSafe} day${daysToSafe !== 1 ? 's' : ''} — post-ovulation wait`;
+    safeHint   = dayNumber >= ovDay + 4
+      ? `${dayNumber - ovDay} days past ovulation (Day ${ovDay})`
+      : `Ovulation window starts Day ${ovDay - 6}`;
   } else {
-    safeStatus = 'Safe';
-    safeClass  = 'safe';
-    safeHint   = `Ovulation window starts Day ${ovDay - 6}`;
+    safeStatus = 'Unsafe';
+    safeClass  = 'unsafe';
+    safeHint   = ovDay == null
+      ? 'Ovulation not yet confirmed this cycle'
+      : dayNumber <= ovDay
+      ? `${ovDay - dayNumber} day${ovDay - dayNumber !== 1 ? 's' : ''} until ovulation (Day ${ovDay})`
+      : `Safe in ${(ovDay + 4) - dayNumber} day${(ovDay + 4) - dayNumber !== 1 ? 's' : ''} — post-ovulation wait`;
   }
 
   // ── Stats cards ──────────────────────────────────────────────────────────
