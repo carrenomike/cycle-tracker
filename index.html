@@ -331,7 +331,6 @@ function render(cycles) {
   // Use only the hard Ovulation marker — never estimates from mucus data.
   const confirmedOv = current.find(r => r.Cycle === 'Ovulation');
   const ovDay = confirmedOv ? parseInt(confirmedOv.Day) : null;
-  let safeStatus, safeClass, safeHint;
   const isSafe = ovDay != null && dayNumber < ovDay - 6 || ovDay != null && dayNumber >= ovDay + 4;
   let safeStatus, safeClass, safeHint;
   if (isSafe) {
