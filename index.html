@@ -671,14 +671,30 @@ function drawOverlayChart(cycles) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea) return;
       ctx.save();
-      ovBands.forEach(({ idx, color }) => {
-        const xCenter = scales.x.getPixelForValue(idx);
-        const tickWidth = maxLen > 1
-          ? Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
-          : 20;
-        ctx.globalAlpha = 0.18;
-        ctx.fillStyle = color;
-        ctx.fillRect(xCenter - tickWidth / 2, chartArea.top, tickWidth, chartArea.bottom - chartArea.top);
+      const tickWidth = maxLen > 1
+        ? Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
+        : 20;
+
+      // Group bands by day index to detect overlaps
+      const byDay = {};
+      ovBands.forEach(b => {
+        if (!byDay[b.idx]) byDay[b.idx] = [];
+        byDay[b.idx].push(b.color);
+      });
+
+      Object.entries(byDay).forEach(([idx, colors]) => {
+        const xCenter = scales.x.getPixelForValue(Number(idx));
+        const sliceW = tickWidth / colors.length;
+        colors.forEach((color, ci) => {
+          ctx.globalAlpha = 0.28;
+          ctx.fillStyle = color;
+          ctx.fillRect(
+            xCenter - tickWidth / 2 + ci * sliceW,
+            chartArea.top,
+            sliceW,
+            chartArea.bottom - chartArea.top
+          );
+        });
       });
       ctx.globalAlpha = 1;
       ctx.restore();
