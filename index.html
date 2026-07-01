@@ -623,7 +623,7 @@ function drawOverlayChart(cycles) {
   // Ovulation band data: one entry per cycle that has a confirmed ovulation day
   const ovBands = cycles.map((cycle, i) => {
     const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
-    return ovIdx >= 0 ? { idx: ovIdx, color: colors[i % colors.length] } : null;
+    return ovIdx >= 0 ? { idx: ovIdx, color: colors[i % colors.length], datasetIndex: i } : null;
   }).filter(Boolean);
 
   const datasets = cycles.map((cycle, i) => {
@@ -675,9 +675,10 @@ function drawOverlayChart(cycles) {
         ? Math.abs(scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0))
         : 20;
 
-      // Group bands by day index to detect overlaps
+      // Group bands by day index, skipping hidden datasets
       const byDay = {};
       ovBands.forEach(b => {
+        if (chart.getDatasetMeta(b.datasetIndex).hidden) return;
         if (!byDay[b.idx]) byDay[b.idx] = [];
         byDay[b.idx].push(b.color);
       });
