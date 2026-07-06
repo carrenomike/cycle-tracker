@@ -135,7 +135,8 @@ thead th {
   font-weight: 700;
   white-space: nowrap;
 }
-tbody td { padding: 7px 10px; border-bottom: 1px solid #f0eef5; vertical-align: top; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid #f0eef5; vertical-align: top; white-space: nowrap; }
+tbody td.wrap { white-space: normal; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.row-blood    { background: #fff5f8; }
 tbody tr.row-ovul     { background: #f5fff6; }
@@ -603,7 +604,7 @@ function buildLogRows(cycle) {
       <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
       <td class="hide-sm">${r.Breasts || ''}</td>
       <td>${cycleTag}</td>
-      <td>${r.Note || ''}</td>
+      <td class="wrap">${r.Note || ''}</td>
     </tr>`;
   }).join('');
 }
