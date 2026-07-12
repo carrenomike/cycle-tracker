@@ -410,7 +410,7 @@ function render(cycles) {
         <label class="trim-label">
           <input type="checkbox" id="fullRangeToggle" ${overlayShowFull ? 'checked' : ''}
             onchange="overlayShowFull=this.checked;drawOverlayChart(allCycles)">
-          Show full cycle
+          Show all cycles
         </label>
         <label class="trim-label">
           <input type="checkbox" id="spanToggle" checked
@@ -540,12 +540,38 @@ function drawTimelineChart(cycles) {
   const ptSizes = allRows.map((r, i) => {
     if (!r.Temp) return 0;
     if (r.Cycle) return 3.5;
-    // Show a small dot for isolated points (no connecting line to a neighbor)
-    const prevTemp = temps[i - 1];
-    const nextTemp = temps[i + 1];
-    const isIsolated = !prevTemp && !nextTemp;
+    // Isolated only if there's no data to connect to anywhere on either side
+    // (gaps are bridged with a dashed line below, so a point only needs a
+    // dot if it truly has nothing to connect to).
+    const isIsolated = !temps.slice(0, i).some(v => v != null) && !temps.slice(i + 1).some(v => v != null);
     return isIsolated ? 2.5 : 0;
   });
+
+  // Dashed bridge datasets: one per gap, connecting the days on either side
+  // of missing entries with a dotted line instead of a solid connection.
+  const gapBridges = [];
+  let prevIdx = -1;
+  for (let j = 0; j < temps.length; j++) {
+    if (temps[j] == null) continue;
+    if (prevIdx >= 0 && j - prevIdx > 1) {
+      const bridge = new Array(temps.length).fill(null);
+      bridge[prevIdx] = temps[prevIdx];
+      bridge[j] = temps[j];
+      gapBridges.push({
+        label: `__gap_${prevIdx}__`,
+        data: bridge,
+        borderColor: '#1e88e5',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        spanGaps: true,
+        tension: 0,
+        fill: false,
+        order: 1,
+      });
+    }
+    prevIdx = j;
+  }
 
   // draw cycle separator lines via vertical annotations approximated with segment colors
   const { min, max } = yRange([temps]);
@@ -579,6 +605,7 @@ function drawTimelineChart(cycles) {
           fill: false,
           order: 2,
         },
+        ...gapBridges,
       ],
     },
     options: {
@@ -643,7 +670,10 @@ function drawOverlayChart(cycles) {
     return ovIdx >= 0 ? { idx: ovIdx, color: colors[i % colors.length], datasetIndex: i } : null;
   }).filter(Boolean);
 
-  const datasets = cycles.map((cycle, i) => {
+  // Main line datasets never bridge gaps themselves (spanGaps:false) — real
+  // consecutive days draw a solid line. Bridged gaps are drawn separately
+  // below as dedicated dashed mini-segments, so the two never conflict.
+  const mainDatasets = cycles.map((cycle, i) => {
     const lastTempIdx = cycle.reduce((max, r, j) => r.Temp ? j : max, -1);
     const display = lastTempIdx >= 0 ? cycle.slice(0, lastTempIdx + 1) : cycle;
 
@@ -661,7 +691,12 @@ function drawOverlayChart(cycles) {
       const row = display[j];
       if (!row || !row.Temp) return 0;
       if (cycle[j] && cycle[j].Cycle === 'Blood') return 3.5;
-      const isIsolated = !data[j - 1] && !data[j + 1];
+      // A point is truly isolated only if there's no data to connect to on
+      // either side anywhere in the series (when gaps are being bridged),
+      // or no immediate neighbor (when gaps are not being bridged).
+      const isIsolated = overlaySpanGaps
+        ? !data.slice(0, j).some(v => v != null) && !data.slice(j + 1).some(v => v != null)
+        : !data[j - 1] && !data[j + 1];
       return isIsolated ? 2.5 : 0;
     });
 
@@ -675,10 +710,45 @@ function drawOverlayChart(cycles) {
       pointBackgroundColor: ptColors,
       pointBorderColor: ptColors,
       tension: 0.2,
-      spanGaps: overlaySpanGaps,
+      spanGaps: false,
       fill: false,
+      _data: data,
+      _cycleIndex: i,
     };
   });
+
+  // Dashed bridge datasets: one per gap (pair of points with missing days between them)
+  const bridgeDatasets = [];
+  if (overlaySpanGaps) {
+    mainDatasets.forEach((ds, i) => {
+      const data = ds._data;
+      let prev = -1;
+      for (let j = 0; j < data.length; j++) {
+        if (data[j] == null) continue;
+        if (prev >= 0 && j - prev > 1) {
+          const bridge = new Array(data.length).fill(null);
+          bridge[prev] = data[prev];
+          bridge[j] = data[j];
+          bridgeDatasets.push({
+            label: `__gap_${i}_${prev}__`,
+            data: bridge,
+            borderColor: colors[i % colors.length],
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            spanGaps: true,
+            tension: 0,
+            fill: false,
+            _isBridge: true,
+            _cycleIndex: i,
+          });
+        }
+        prev = j;
+      }
+    });
+  }
+
+  const datasets = [...mainDatasets, ...bridgeDatasets];
 
   const allTemps = cycles.flatMap(c => c.map(r => r.Temp ? parseFloat(r.Temp) : null));
   const { min, max } = yRange([allTemps]);
@@ -721,11 +791,6 @@ function drawOverlayChart(cycles) {
     },
   };
 
-  // Default view: just the current week (last 7 logged days of the current cycle)
-  const xRange = (!overlayShowFull && currentDayNumber)
-    ? { min: Math.max(1, currentDayNumber - 6), max: Math.max(currentDayNumber, Math.max(1, currentDayNumber - 6) + 6) }
-    : {};
-
   overlayChart = new Chart(document.getElementById('chartOverlay').getContext('2d'), {
     type: 'line',
     data: { labels, datasets },
@@ -749,14 +814,36 @@ function drawOverlayChart(cycles) {
         ...baseOptions({}, {}, {}).plugins,
         legend: {
           display: true,
-          labels: { font: { size: 11 }, boxWidth: 14, padding: 12 },
+          labels: {
+            font: { size: 11 }, boxWidth: 14, padding: 12,
+            filter: (item, data) => !data.datasets[item.datasetIndex]._isBridge,
+          },
+          onClick: (e, legendItem, legend) => {
+            const chart = legend.chart;
+            const cycleIndex = legendItem.datasetIndex;
+            const meta = chart.getDatasetMeta(cycleIndex);
+            meta.hidden = meta.hidden === null ? !chart.data.datasets[cycleIndex].hidden : !meta.hidden;
+            chart.data.datasets.forEach((ds, i) => {
+              if (ds._isBridge && ds._cycleIndex === cycleIndex) {
+                chart.getDatasetMeta(i).hidden = meta.hidden;
+              }
+            });
+            chart.update();
+          },
         },
       },
     },
   });
-  overlayChart.options.scales.x.min = xRange.min;
-  overlayChart.options.scales.x.max = xRange.max;
-  overlayChart.update();
+
+  // Default view: only the current cycle's line; past cycles start hidden.
+  if (!overlayShowFull) {
+    const currentCycleIndex = cycles.length - 1;
+    datasets.forEach((ds, i) => {
+      const belongsToCurrent = ds._isBridge ? ds._cycleIndex === currentCycleIndex : i === currentCycleIndex;
+      if (!belongsToCurrent) overlayChart.getDatasetMeta(i).hidden = true;
+    });
+    overlayChart.update();
+  }
 }
 
 // ── Data load ──────────────────────────────────────────────────────────────
