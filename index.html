@@ -529,7 +529,7 @@ function drawTimelineChart(cycles) {
     r.Cycle === 'Blood'     ? '#e53935' :
     r.Cycle === 'Ovulation' ? '#ab47bc' : '#1e88e5'
   );
-  const ptSizes = allRows.map(r => r.Temp ? (r.Cycle ? 4 : 2.5) : 0);
+  const ptSizes = allRows.map(r => r.Temp ? (r.Cycle ? 3.5 : 0) : 0);
 
   // draw cycle separator lines via vertical annotations approximated with segment colors
   const { min, max } = yRange([temps]);
@@ -644,7 +644,7 @@ function drawOverlayChart(cycles) {
     const ptSizes = labels.map((_, j) => {
       const row = display[j];
       if (!row || !row.Temp) return 0;
-      return (cycle[j] && cycle[j].Cycle === 'Blood') ? 4 : 2.5;
+      return (cycle[j] && cycle[j].Cycle === 'Blood') ? 3.5 : 0;
     });
 
     return {
