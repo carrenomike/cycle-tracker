@@ -233,7 +233,6 @@ let timelineChart   = null;
 let overlayChart    = null;
 let _scriptEl       = null;
 let allCycles        = null;
-let overlaySpanGaps  = true;
 let overlayShowFull  = false;
 let selectedLogCycle = null;
 let currentDayNumber = null;
@@ -411,11 +410,6 @@ function render(cycles) {
           <input type="checkbox" id="fullRangeToggle" ${overlayShowFull ? 'checked' : ''}
             onchange="overlayShowFull=this.checked;drawOverlayChart(allCycles)">
           Show all cycles
-        </label>
-        <label class="trim-label">
-          <input type="checkbox" id="spanToggle" checked
-            onchange="overlaySpanGaps=this.checked;drawOverlayChart(allCycles)">
-          Connect missing days
         </label>
       </div>
       <div class="chart-wrap"><canvas id="chartOverlay"></canvas></div>
@@ -691,12 +685,9 @@ function drawOverlayChart(cycles) {
       const row = display[j];
       if (!row || !row.Temp) return 0;
       if (cycle[j] && cycle[j].Cycle === 'Blood') return 3.5;
-      // A point is truly isolated only if there's no data to connect to on
-      // either side anywhere in the series (when gaps are being bridged),
-      // or no immediate neighbor (when gaps are not being bridged).
-      const isIsolated = overlaySpanGaps
-        ? !data.slice(0, j).some(v => v != null) && !data.slice(j + 1).some(v => v != null)
-        : !data[j - 1] && !data[j + 1];
+      // Isolated only if there's no data to connect to anywhere on either
+      // side (gaps are always bridged with a dashed line below).
+      const isIsolated = !data.slice(0, j).some(v => v != null) && !data.slice(j + 1).some(v => v != null);
       return isIsolated ? 2.5 : 0;
     });
 
@@ -719,7 +710,7 @@ function drawOverlayChart(cycles) {
 
   // Dashed bridge datasets: one per gap (pair of points with missing days between them)
   const bridgeDatasets = [];
-  if (overlaySpanGaps) {
+  {
     mainDatasets.forEach((ds, i) => {
       const data = ds._data;
       let prev = -1;
