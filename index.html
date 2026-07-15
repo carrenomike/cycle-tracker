@@ -277,9 +277,12 @@ function detectOvDay(cycle) {
 function calcCoverline(cycle) {
   const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
   if (ovIdx < 0) return null;
+  // Pull from a wider window before ovulation so excluded rows are backfilled
+  // by earlier days, then keep the most recent 6 valid readings.
   const preTemps = cycle
-    .slice(Math.max(0, ovIdx - 6), ovIdx)
-    .filter(r => r.Temp)
+    .slice(0, ovIdx)
+    .filter(r => r.Temp && (r.Exclude || '').trim().toUpperCase() !== 'Y')
+    .slice(-6)
     .map(r => parseFloat(r.Temp));
   if (!preTemps.length) return null;
   return parseFloat((Math.max(...preTemps) + 0.1).toFixed(2));
