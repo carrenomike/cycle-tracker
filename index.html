@@ -141,6 +141,14 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr.row-blood    { background: #fff5f8; }
 tbody tr.row-ovul     { background: #f5fff6; }
 tbody tr.row-empty    { opacity: 0.38; }
+tbody tr.row-current  { background: #faf5fd; }
+tfoot td {
+  padding: 8px 10px;
+  border-top: 2px solid #e8e0ef;
+  font-weight: 600;
+  color: #7b1fa2;
+  white-space: nowrap;
+}
 
 .tag {
   display: inline-block;
@@ -151,6 +159,7 @@ tbody tr.row-empty    { opacity: 0.38; }
 }
 .tag-blood { background: #fce4ec; color: #b71c1c; }
 .tag-ovul  { background: #e8f5e9; color: #1b5e20; }
+.tag-current { background: #f3e5f5; color: #6a1b9a; margin-left: 6px; }
 
 /* ── Footer ───────────────────────────────────────── */
 .footer { text-align: center; font-size: 0.7rem; color: #bbb; padding: 10px 0 24px; }
@@ -419,7 +428,24 @@ function render(cycles) {
     </div>`;
 
   // ── Cycle history table ───────────────────────────────────────────────────
-  const historyHTML = past.length ? `
+  // Current cycle row is omitted entirely until at least one day has data.
+  const currentHasData = current.some(hasData);
+  // Ovulation for the in-progress cycle uses the confirmed marker only —
+  // never the mucus estimate — to stay consistent with the Safe Sex card.
+  const currentRowHTML = currentHasData ? `<tr class="row-current">
+    <td>Cycle ${cycles.length}<span class="tag tag-current">Current</span></td>
+    <td>${current[0]?.Date || '—'}</td>
+    <td>${dayNumber} day${dayNumber !== 1 ? 's' : ''}</td>
+    <td>${ovDay != null ? `Day ${ovDay}` : '—'}</td>
+  </tr>` : '';
+
+  // Averages cover completed cycles only; ovulation skips cycles with no day recorded.
+  const pastOvDays = past.map(detectOvDay).filter(d => d != null);
+  const avgOvDay   = pastOvDays.length
+    ? Math.round(pastOvDays.reduce((a, b) => a + b, 0) / pastOvDays.length)
+    : null;
+
+  const historyHTML = (past.length || currentHasData) ? `
     <div class="section">
       <h2>Cycle History</h2>
       <div class="tbl-wrap">
@@ -434,7 +460,14 @@ function render(cycles) {
             <td>${c.length} days</td>
             <td>${detectOvDay(c) != null ? `Day ${detectOvDay(c)}` : '—'}</td>
           </tr>`).join('')}
+          ${currentRowHTML}
         </tbody>
+        ${past.length ? `<tfoot><tr>
+          <td>Average</td>
+          <td></td>
+          <td>${avg != null ? `${avg} days` : '—'}</td>
+          <td>${avgOvDay != null ? `Day ${avgOvDay}` : '—'}</td>
+        </tr></tfoot>` : ''}
       </table>
       </div>
     </div>` : '';
