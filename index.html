@@ -320,17 +320,26 @@ function render(cycles) {
 
   const ldIdx      = lastDataIndex(current);
   const dayNumber  = parseInt(current[ldIdx].Day);
-  const daysLeft   = avg ? Math.max(0, avg - dayNumber) : null;
   currentDayNumber = dayNumber;
 
-  // Estimate next period date from cycle start + avg length
+  // Once ovulation is confirmed, the luteal phase is a reliable ~14 days,
+  // so predict from the ovulation day instead of the historical average.
+  const ovRow        = current.find(r => r.Cycle === 'Ovulation');
+  const ovDayNum     = ovRow ? parseInt(ovRow.Day) : null;
+  const predictedLen = ovDayNum != null ? ovDayNum + 14 : avg;
+  const fromOvulation = ovDayNum != null;
+  const daysLeft     = predictedLen ? Math.max(0, predictedLen - dayNumber) : null;
+
+  // Confirmed ovulation → ovulation date + 14. Otherwise cycle start + avg length.
+  const anchorDate = fromOvulation ? ovRow.Date : current[0]?.Date;
+  const anchorAdd  = fromOvulation ? 14 : avg;
   const nextPeriodDate = (() => {
-    if (!avg || !current[0]?.Date) return null;
+    if (!predictedLen || !anchorDate) return null;
     const yr = new Date().getFullYear();
     for (const y of [yr, yr - 1]) {
-      const d = new Date(`${current[0].Date} ${y}`);
+      const d = new Date(`${anchorDate} ${y}`);
       if (!isNaN(d.getTime())) {
-        d.setDate(d.getDate() + avg);
+        d.setDate(d.getDate() + anchorAdd);
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       }
     }
@@ -344,8 +353,7 @@ function render(cycles) {
 
   // ── Safe-sex status ──────────────────────────────────────────────────────
   // Use only the hard Ovulation marker — never estimates from mucus data.
-  const confirmedOv = current.find(r => r.Cycle === 'Ovulation');
-  const ovDay = confirmedOv ? parseInt(confirmedOv.Day) : null;
+  const ovDay = ovDayNum;
   const isSafe = ovDay != null && dayNumber < ovDay - 6 || ovDay != null && dayNumber >= ovDay + 4;
   let safeStatus, safeClass, safeHint;
   if (isSafe) {
@@ -391,10 +399,10 @@ function render(cycles) {
         <div class="val">${avg ?? '—'}<span style="font-size:1rem;font-weight:400"> days</span></div>
         <div class="hint">${lengths.length} complete cycle${lengths.length !== 1 ? 's' : ''}</div>
       </div>
-      ${avg != null ? `<div class="card">
+      ${predictedLen != null ? `<div class="card">
         <div class="lbl">Next Period Est.</div>
         <div class="val" style="font-size:1.1rem;padding-top:4px">${nextPeriodDate ?? '—'}</div>
-        <div class="hint">~${daysLeft} days away &middot; ${avg}-day avg</div>
+        <div class="hint">~${daysLeft} days away &middot; ${fromOvulation ? `14 days post-ovulation (Day ${ovDayNum})` : `${avg}-day avg`}</div>
       </div>` : ''}
     </div>`;
 
