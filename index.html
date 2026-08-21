@@ -108,6 +108,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
   margin-bottom: 14px;
 }
 
+/* ── Moon ─────────────────────────────────────────── */
+.moon      { font-size: 1.05rem; line-height: 1; margin-right: 6px; cursor: help; }
+.moon-name { white-space: nowrap; }
+
 /* ── Chart ────────────────────────────────────────── */
 .chart-wrap { position: relative; height: 270px; }
 
@@ -274,12 +278,62 @@ function detectPhase(cycle) {
   return 'follicular';
 }
 
+// Ovulation row for a cycle: the hard marker if present, else the egg-white
+// mucus estimate. detectOvDay is the day-number view of the same answer.
+function detectOvRow(cycle) {
+  return cycle.find(r => r.Cycle === 'Ovulation')
+      || cycle.find(r => (r['Cervical Mucus'] || '').toLowerCase().includes('egg'))
+      || null;
+}
+
 function detectOvDay(cycle) {
-  const ov = cycle.find(r => r.Cycle === 'Ovulation');
-  if (ov) return parseInt(ov.Day);
-  const ew = cycle.find(r => (r['Cervical Mucus'] || '').toLowerCase().includes('egg'));
-  if (ew) return parseInt(ew.Day);
-  return null;
+  const ov = detectOvRow(cycle);
+  return ov ? parseInt(ov.Day) : null;
+}
+
+// ── Moon phase ─────────────────────────────────────────────────────────────
+// Pure date math against a known new moon — no API, no network, works offline.
+// Mean-synodic approximation: accurate to a few hours, far tighter than the
+// ~3.7-day width of a phase bucket.
+
+const SYNODIC_MONTH  = 29.530588853;                  // days between new moons
+const NEW_MOON_EPOCH = Date.UTC(2000, 0, 6, 18, 14);  // a known new moon
+
+const MOON_PHASES = [
+  { name: 'New Moon',        glyph: '\u{1F311}' },
+  { name: 'Waxing Crescent', glyph: '\u{1F312}' },
+  { name: 'First Quarter',   glyph: '\u{1F313}' },
+  { name: 'Waxing Gibbous',  glyph: '\u{1F314}' },
+  { name: 'Full Moon',       glyph: '\u{1F315}' },
+  { name: 'Waning Gibbous',  glyph: '\u{1F316}' },
+  { name: 'Last Quarter',    glyph: '\u{1F317}' },
+  { name: 'Waning Crescent', glyph: '\u{1F318}' },
+];
+
+// Phase for a calendar day, sampled at local noon so the answer is the phase
+// that day is generally recognised as having.
+function moonPhase(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  const noon = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12);
+  const days = (noon - NEW_MOON_EPOCH) / 86400000;
+  const age  = ((days % SYNODIC_MONTH) + SYNODIC_MONTH) % SYNODIC_MONTH;
+  // +0.5 centres each bucket on its named phase rather than starting there.
+  const index = Math.floor((age / SYNODIC_MONTH) * 8 + 0.5) % 8;
+  return {
+    ...MOON_PHASES[index],
+    index,
+    age,
+    illumination: (1 - Math.cos(2 * Math.PI * age / SYNODIC_MONTH)) / 2,
+  };
+}
+
+// Table cell contents for a row's moon phase, or an em dash if it has no date.
+function moonCell(row) {
+  const m = row && moonPhase(row._date);
+  if (!m) return '\u2014';
+  const lit = Math.round(m.illumination * 100);
+  return `<span class="moon" title="${m.name} \u00b7 ${lit}% lit">${m.glyph}</span>` +
+         `<span class="moon-name">${m.name}</span>`;
 }
 
 // Returns coverline (max of 6 pre-ovulation temps + 0.1°F), or null if no ovulation marked.
@@ -331,19 +385,13 @@ function render(cycles) {
   const daysLeft     = predictedLen ? Math.max(0, predictedLen - dayNumber) : null;
 
   // Confirmed ovulation → ovulation date + 14. Otherwise cycle start + avg length.
-  const anchorDate = fromOvulation ? ovRow.Date : current[0]?.Date;
-  const anchorAdd  = fromOvulation ? 14 : avg;
+  const anchorRow = fromOvulation ? ovRow : current[0];
+  const anchorAdd = fromOvulation ? 14 : avg;
   const nextPeriodDate = (() => {
-    if (!predictedLen || !anchorDate) return null;
-    const yr = new Date().getFullYear();
-    for (const y of [yr, yr - 1]) {
-      const d = new Date(`${anchorDate} ${y}`);
-      if (!isNaN(d.getTime())) {
-        d.setDate(d.getDate() + anchorAdd);
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      }
-    }
-    return null;
+    if (!predictedLen || !anchorRow?._date) return null;
+    const d = new Date(anchorRow._date);
+    d.setDate(d.getDate() + anchorAdd);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   })();
 
   const lastTempRow = [...current].reverse().find(r => r.Temp);
@@ -416,6 +464,7 @@ function render(cycles) {
         <div class="legend-item"><div class="dash-line" style="background:#9e9e9e"></div>Coverline (per cycle, max pre-ov + 0.1&deg;)</div>
         <div class="legend-item"><div class="dot" style="background:#e53935"></div>Menstrual</div>
         <div class="legend-item"><div class="dot" style="background:#ab47bc"></div>Ovulation</div>
+        <div class="legend-item"><span class="moon" style="margin-right:0">\u{1F313}</span>Moon phase (strip above chart)</div>
       </div>
       <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
     </div>
@@ -445,6 +494,8 @@ function render(cycles) {
     <td>${current[0]?.Date || '—'}</td>
     <td>${dayNumber} day${dayNumber !== 1 ? 's' : ''}</td>
     <td>${ovDay != null ? `Day ${ovDay}` : '—'}</td>
+    <td class="hide-sm">${moonCell(current[0])}</td>
+    <td class="hide-sm">${ovRow ? moonCell(ovRow) : '—'}</td>
   </tr>` : '';
 
   // Averages cover completed cycles only; ovulation skips cycles with no day recorded.
@@ -460,6 +511,7 @@ function render(cycles) {
       <table>
         <thead><tr>
           <th>Cycle</th><th>Start Date</th><th>Length</th><th>Ovulation</th>
+          <th class="hide-sm">Moon at Day 1</th><th class="hide-sm">Moon at Ovulation</th>
         </tr></thead>
         <tbody>
           ${past.map((c, i) => `<tr>
@@ -467,6 +519,8 @@ function render(cycles) {
             <td>${c[0]?.Date || '—'}</td>
             <td>${c.length} days</td>
             <td>${detectOvDay(c) != null ? `Day ${detectOvDay(c)}` : '—'}</td>
+            <td class="hide-sm">${moonCell(c[0])}</td>
+            <td class="hide-sm">${moonCell(detectOvRow(c))}</td>
           </tr>`).join('')}
           ${currentRowHTML}
         </tbody>
@@ -475,6 +529,7 @@ function render(cycles) {
           <td></td>
           <td>${avg != null ? `${avg} days` : '—'}</td>
           <td>${avgOvDay != null ? `Day ${avgOvDay}` : '—'}</td>
+          <td class="hide-sm"></td><td class="hide-sm"></td>
         </tr></tfoot>` : ''}
       </table>
       </div>
@@ -611,11 +666,45 @@ function drawTimelineChart(cycles) {
     prevIdx = j;
   }
 
+  // Moon strip: a glyph in the reserved band above the plot, drawn on each day
+  // the phase bucket turns over. Spacing is enforced in pixels, so a long
+  // timeline thins itself out instead of overlapping into mush.
+  const moonStripPlugin = {
+    id: 'moonStrip',
+    afterDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea) return;
+      const y = chartArea.top - 13;
+      const minGap = 26;
+      let lastIndex = null, lastX = -Infinity;
+
+      ctx.save();
+      ctx.font = '14px system-ui, "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      allRows.forEach((r, i) => {
+        const m = moonPhase(r._date);
+        if (!m) return;
+        const changed = m.index !== lastIndex;
+        lastIndex = m.index;
+        if (!changed) return;
+        const x = scales.x.getPixelForValue(i);
+        if (x - lastX < minGap) return;
+        lastX = x;
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillRect(x - 0.5, chartArea.top, 1, 5);
+        ctx.fillText(m.glyph, x, y);
+      });
+      ctx.restore();
+    },
+  };
+
   // draw cycle separator lines via vertical annotations approximated with segment colors
   const { min, max } = yRange([temps]);
 
   timelineChart = new Chart(document.getElementById('chartTimeline').getContext('2d'), {
     type: 'line',
+    plugins: [moonStripPlugin],
     data: {
       labels,
       datasets: [
@@ -647,12 +736,17 @@ function drawTimelineChart(cycles) {
       ],
     },
     options: {
+      // Top padding reserves an empty band for the moon strip so it can never
+      // collide with the temperature line.
+      layout: { padding: { top: 24 } },
       ...baseOptions({}, { min, max }, {
         title: (items) => labels[items[0].dataIndex],
         afterBody: (items) => {
           const r = allRows[items[0].dataIndex];
           if (!r) return [];
+          const moon = moonPhase(r._date);
           return [
+            moon ? `Moon: ${moon.glyph} ${moon.name}` : '',
             r.Cycle ? `Phase: ${r.Cycle}` : '',
             r['Cervical Mucus'] ? `Mucus: ${r['Cervical Mucus']}` : '',
             r['Cervix Texture'] ? `Cervix: ${r['Cervix Texture']}` : '',
@@ -907,6 +1001,15 @@ function loadData() {
           obj[cols[i]] = (cell && cell.v !== null && cell.v !== undefined)
             ? String(cell.f !== undefined && cell.f !== null ? cell.f : cell.v)
             : '';
+          // The Date column is a true date cell, so the raw value carries the
+          // year ("Date(2026,2,25)") even though the formatted string drops it.
+          // Keep the real date alongside the display string so date math never
+          // has to guess which year a "Mar 25" belongs to.
+          if (cols[i] === 'Date' && cell && typeof cell.v === 'string') {
+            const m = /^Date\((\d+),(\d+),(\d+)/.exec(cell.v);
+            if (m) obj._date = new Date(+m[1], +m[2], +m[3]);
+            else console.warn('Could not parse Date cell:', cell.v);
+          }
         });
         return obj;
       });
