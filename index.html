@@ -674,12 +674,14 @@ function drawTimelineChart(cycles) {
     afterDraw(chart) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea) return;
-      const y = chartArea.top - 13;
-      const minGap = 26;
+      const y = chartArea.top - 15;
+      const minGap = 30;
       let lastIndex = null, lastX = -Infinity;
 
       ctx.save();
-      ctx.font = '14px system-ui, "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+      // Emoji fonts first: if a monochrome outline glyph gets picked instead,
+      // it renders as a faint hard-to-read shape rather than a filled moon.
+      ctx.font = '17px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       allRows.forEach((r, i) => {
@@ -691,8 +693,11 @@ function drawTimelineChart(cycles) {
         const x = scales.x.getPixelForValue(i);
         if (x - lastX < minGap) return;
         lastX = x;
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        ctx.fillStyle = 'rgba(0,0,0,0.30)';
         ctx.fillRect(x - 0.5, chartArea.top, 1, 5);
+        // Reset to full opacity before the glyph — a monochrome fallback would
+        // otherwise inherit the tick's faded fill.
+        ctx.fillStyle = '#37474f';
         ctx.fillText(m.glyph, x, y);
       });
       ctx.restore();
@@ -738,7 +743,7 @@ function drawTimelineChart(cycles) {
     options: {
       // Top padding reserves an empty band for the moon strip so it can never
       // collide with the temperature line.
-      layout: { padding: { top: 24 } },
+      layout: { padding: { top: 28 } },
       ...baseOptions({}, { min, max }, {
         title: (items) => labels[items[0].dataIndex],
         afterBody: (items) => {
