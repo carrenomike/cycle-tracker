@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e (plan start) — 0 unreviewed lines
+**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (lw1: 53)
 
 **DESIGN GATE:** NOT CLEARED. Slices 4, 5, 7, 8 are blocked — do not expand their stubs into specs. Gate clears
 only when Mike says the prototype's look is signed off *and* Tirzah has seen it and likes it. See README.
@@ -13,6 +13,12 @@ only when Mike says the prototype's look is signed off *and* Tirzah has seen it 
 ## Done
 
 _(One line per slice, appended as each lands.)_
+
+- **lw1** — 4 defects fixed in `index.html` + `deploy.bat`. Headless check vs live sheet 2026-08-26: (a) `detectPhase`
+  window moved from blank rows 31-35 to logged rows 9-13; output `follicular` both ways today (coincidence, not a
+  no-op). (b) `detectOvDay` unchanged 16/18/23/31 for cycles 1-4, `null` for cycle 5. (c) Cycle day = 13 by date
+  math from 2026-08-14, matches hand-count and the old value today; no longer drifts on unlogged days. Awaiting
+  Mike's live test.
 
 ## Open deviations from spec
 

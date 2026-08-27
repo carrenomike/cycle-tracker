@@ -13,10 +13,15 @@ wholesale and otherwise unchanged. Mobile-first; both phones are Galaxy S22 Ultr
 
 ## Verified facts
 
-- `index.html` is a single ~1040-line vanilla JS/HTML file with Chart.js 4.4.0 from a CDN and no build step.
-- `index.html:296-320` — mean-synodic moon maths already exists (`SYNODIC_MONTH = 29.530588853`,
+- `index.html` is a single ~1055-line vanilla JS/HTML file with Chart.js 4.4.0 from a CDN and no build step.
+- `index.html:301-330` — mean-synodic moon maths already exists (`SYNODIC_MONTH = 29.530588853`,
   `NEW_MOON_EPOCH = Date.UTC(2000, 0, 6, 18, 14)`) and is accurate to a few hours. Reuse it; do not add a library.
-- `index.html:350-356` — `calcCoverline` already exists and already returns `null` until ovulation is marked.
+- `index.html:342-351` — `calcCoverline` already exists and already returns `null` until ovulation is marked.
+- `index.html:375-389` (post-slice-1) — the dashboard's `dayNumber` already computes cycle day by date
+  arithmetic off `current[0]._date`, normalising both ends to local midnight. Reuse that pattern for the wheel's
+  cycle day; the only difference is that the anchor becomes the `Cycle Start` flag instead of `current[0]`.
+- `detectOvRow` (post-slice-1) returns the manual marker or `null` — it no longer infers ovulation from mucus.
+  The wheel can call it directly without re-checking.
 - The wheel's geometry, safety engine and information layout were prototyped and verified against the real sheet
   data on 2026-08-26. The prototype is scratchpad-only and is **not** a source file — port the logic, not the file.
 

@@ -10,8 +10,8 @@ reading the old sheet, so it stays working the whole time. Slice 3 does the swit
 
 - `index.html:243` — `const SHEET_ID = '1F3Wym...'`, in a **public** repo since the first commit `57d49c9`. The ID
   is a burned credential; a new sheet with a new ID is mandatory and non-negotiable.
-- `index.html:1032` — the current read is the `gviz/tq` JSONP endpoint, which returns 200 with no auth at all.
-- `index.html:1009-1016` — the `Date` column is a real date cell; the raw value carries the year as `Date(y,m,d)`
+- `index.html:1047` — the current read is the `gviz/tq` JSONP endpoint, which returns 200 with no auth at all.
+- `index.html:1021-1032` — the `Date` column is a real date cell; the raw value carries the year as `Date(y,m,d)`
   even though the formatted string drops it. The migration must read the raw value, not the display string.
 - Live sheet as of 2026-08-26: 177 rows, 2026-03-25 through 2026-09-17, with blank pre-created rows at the end.
   Day-1 dates: Mar 25, Apr 26, May 25, Jul 1, Aug 14. Cycle lengths 32 / 29 / 37 / 44 / 35(open).

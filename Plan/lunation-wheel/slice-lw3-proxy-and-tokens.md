@@ -11,9 +11,9 @@ new private sheet. A bad or missing token shows a plain explanatory message.
 
 ## Verified facts
 
-- `index.html:1032` — current read is a JSONP `<script>` injection at the `gviz/tq` endpoint with a
+- `index.html:1047` — current read is a JSONP `<script>` injection at the `gviz/tq` endpoint with a
   `responseHandler` callback. JSONP is used because the app must work from `file://` as well as GitHub Pages.
-- `index.html:1009-1016` — the row-parsing code that consumes the gviz response shape. Changing the transport means
+- `index.html:1021-1032` — the row-parsing code that consumes the gviz response shape. Changing the transport means
   changing what this parses; keep the parsed row object shape identical so nothing downstream has to change.
 - The repo is public and served at `https://carrenomike.github.io/cycle-tracker/`. The Apps Script URL will be
   visible in that public source. It is discoverable and its quota is burnable by anyone who finds it.

@@ -270,7 +270,9 @@ function hasData(r) {
 }
 
 function detectPhase(cycle) {
-  const last5 = cycle.slice(-5);
+  // Look at the last five *logged* rows. The sheet can carry blank pre-created
+  // future rows at the end; slicing the raw array would read only blanks.
+  const last5 = cycle.filter(hasData).slice(-5);
   if (last5.some(r => r.Cycle === 'Blood')) return 'menstrual';
   if (last5.some(r => r.Cycle === 'Ovulation')) return 'ovulation';
   // Luteal only if an Ovulation marker has been logged earlier this cycle
@@ -278,12 +280,12 @@ function detectPhase(cycle) {
   return 'follicular';
 }
 
-// Ovulation row for a cycle: the hard marker if present, else the egg-white
-// mucus estimate. detectOvDay is the day-number view of the same answer.
+// Ovulation row for a cycle: the hard manual marker, or nothing. Ovulation is
+// never inferred — not from mucus, not from temperature, not from anything.
+// A cycle with no marker has no ovulation day. detectOvDay is the day-number
+// view of the same answer.
 function detectOvRow(cycle) {
-  return cycle.find(r => r.Cycle === 'Ovulation')
-      || cycle.find(r => (r['Cervical Mucus'] || '').toLowerCase().includes('egg'))
-      || null;
+  return cycle.find(r => r.Cycle === 'Ovulation') || null;
 }
 
 function detectOvDay(cycle) {
@@ -372,8 +374,21 @@ function render(cycles) {
   const lengths  = past.map(c => c.length);
   const avg      = lengths.length ? Math.round(lengths.reduce((a,b) => a+b, 0) / lengths.length) : null;
 
-  const ldIdx      = lastDataIndex(current);
-  const dayNumber  = parseInt(current[ldIdx].Day);
+  // Cycle day is date arithmetic from the Day-1 row, never the day number of
+  // the last logged row — otherwise it falls behind by one per unlogged day.
+  const dayNumber = (() => {
+    const start = current[0]?._date;
+    if (start instanceof Date && !isNaN(start)) {
+      // Normalise both ends to local midnight so the difference is an exact
+      // whole number of days and immune to DST.
+      const a = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const n = new Date();
+      const b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+      return Math.round((b - a) / 86400000) + 1;
+    }
+    console.warn('Cycle start date missing — falling back to last logged Day number');
+    return parseInt(current[lastDataIndex(current)].Day);
+  })();
   currentDayNumber = dayNumber;
 
   // Once ovulation is confirmed, the luteal phase is a reliable ~14 days,
