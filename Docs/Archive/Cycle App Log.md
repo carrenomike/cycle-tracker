@@ -226,7 +226,7 @@ anonymously against all three read routes — the `gviz` feed, the CSV export an
 returns HTTP 401. The sheet ID has been public in this repo since the first commit and is now inert. The sheet
 itself is kept, private, as the keepsake. **ca3 is complete: every exit criterion is met.**
 
-## ca3a — Checkpoint review of the ca3 range (2026-09-13/14, commit CA3A_SHA)
+## ca3a — Checkpoint review of the ca3 range (2026-09-13/14, commit 3ee13e2)
 
 Review only, no features. Range `1065c1e..HEAD`, Plan and Docs excluded: ~830 added lines, of which ~320 are app
 or server code. Four defects found and fixed, eight findings deliberately left to the slices that own them.
