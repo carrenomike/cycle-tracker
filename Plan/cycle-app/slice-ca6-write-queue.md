@@ -1,4 +1,4 @@
-# Slice lw6 — Local unsent queue and persistent banner (stub)
+# Slice ca6 — Local unsent queue and persistent banner (stub)
 
 ## Scope
 
@@ -7,7 +7,7 @@ that stays visible the whole time anything is unsent.
 
 ## Verified facts
 
-- Slice 5 ships the write path with no queue: a failed write is simply a visible error. This slice replaces that
+- Slice ca5 ships the write path with no queue: a failed write is simply a visible error. This slice replaces that
   with a queue plus the same visible error.
 
 ## Locked decisions
@@ -19,7 +19,7 @@ that stays visible the whole time anything is unsent.
 - On load, the sheet overwrites the display cache — except for queued entries, which stay on top and stay flagged
   as unsent so it is always obvious which numbers have not landed.
 - **The unsent banner is persistent and not dismissible.** It stays until the queue is empty. (Contrast the
-  viewer-side staleness banner in slice 7, which *is* dismissible — different banner, different rule.)
+  viewer-side staleness banner in ca7, which *is* dismissible — different banner, different rule.)
 - The banner is **writer-only**. Tirzah never sees it.
 - **Every failure is surfaced.** A flush that fails, a flush that partially fails, and a queue that has been stuck
   for a long time all get a visible state — not just a console line. This is the exact class of silent background
@@ -28,7 +28,7 @@ that stays visible the whole time anything is unsent.
 
 ## Dependencies
 
-Slice 5 landed.
+Slice ca5 landed.
 
 ## Exit criteria
 

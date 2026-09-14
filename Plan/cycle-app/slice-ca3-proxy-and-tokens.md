@@ -1,10 +1,10 @@
-# Slice lw3 — Apps Script proxy, two tokens, private sheet (stub)
+# Slice ca3 — Apps Script proxy, two tokens, private sheet (stub)
 
 ## Scope
 
 Stand up a Google Apps Script web app in front of the new sheet, make the sheet fully private, and switch the app's
 read path from the public `gviz/tq` endpoint to the proxy. Tokens arrive by URL fragment on first open and are
-stored locally. **Read only in this slice** — the write endpoint is not built or exposed until slice 6.
+stored locally. **Read only in this slice** — the write endpoint is not built or exposed until ca5.
 
 After this slice: both phones open the same URL with their own token and see the existing dashboard, fed from the
 new private sheet. A bad or missing token shows a plain explanatory message.
@@ -26,7 +26,7 @@ new private sheet. A bad or missing token shows a plain explanatory message.
 - **Token delivery: a one-time link with the token in the URL fragment** (`#t=...`). Text after `#` never leaves the
   browser. The app stores it on first open and strips the fragment from the address bar immediately.
 - Recovery = re-send the link. Rotation = change the constant in the Apps Script and redeploy.
-- **A bad or missing token must produce a visible message, never a blank wheel and never a silent retry loop.** So
+- **A bad or missing token must produce a visible message, never a blank screen and never a silent retry loop.** So
   must a network failure, a quota rejection, and a malformed response. This project has repeatedly lost time to
   silent background failures — every failure path here gets a visible state.
 - The token check must run **before** any sheet read, so a bad token costs no quota.
@@ -40,7 +40,7 @@ new private sheet. A bad or missing token shows a plain explanatory message.
 
 ## Dependencies
 
-Slice 2 landed (the new sheet exists and is populated).
+Slice ca2 landed (the new sheet exists and is populated).
 
 ## Exit criteria
 

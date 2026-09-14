@@ -1,4 +1,4 @@
-# Slice lw9 — Review the whole plan (stub)
+# Slice ca8 — Review the whole plan (stub)
 
 ## Scope
 

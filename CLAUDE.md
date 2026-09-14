@@ -4,6 +4,6 @@
 
 # Working plan
 
-**`Plan/lunation-wheel/` is the working plan.** Start a session with: *read `Plan/lunation-wheel/STATE.md`, then
-`Plan/lunation-wheel/slice-lwN-*.md`, execute that slice only.* Do not load the whole folder, the README, or the
+**`Plan/cycle-app/` is the working plan.** Start a session with: *read `Plan/cycle-app/STATE.md`, then
+`Plan/cycle-app/slice-caN-*.md`, execute that slice only.* Do not load the whole folder, the README, or the
 archive log at session start.

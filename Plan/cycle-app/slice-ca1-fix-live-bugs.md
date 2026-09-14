@@ -1,4 +1,4 @@
-# Slice lw1 — Fix the four live defects
+# Slice ca1 — Fix the four live defects
 
 ## Scope
 
@@ -45,10 +45,10 @@ All line numbers confirmed by reading `index.html` at commit `1065c1e`.
 
 - Ovulation day is a **manual marker only**. No calculation may declare one. That is the whole reason bug 2 is a bug.
 - Cycle day is **date arithmetic**, never a lookup of the last logged row.
-- The wheel's phase vocabulary will later be **Bleeding / Follicular / Luteal** only. **This slice does not change
-  the dashboard's existing four-value vocabulary** (`Menstrual / Follicular / Ovulation / Luteal` at
-  `index.html:370`) — that belongs to the wheel, and changing it here would widen the slice. Fix the window the
-  function reads, not the words it prints.
+- The phase vocabulary will later be **Bleeding / Follicular / Luteal** only. **This slice does not change the
+  dashboard's existing four-value vocabulary** (`Menstrual / Follicular / Ovulation / Luteal` at `index.html:370`)
+  — that belongs to ca4, and changing it here would widen the slice. Fix the window the function reads, not the
+  words it prints.
 - Removing the mucus fallback makes the Ovulation column show an em-dash for any cycle with no marker. That is the
   intended, correct output — not a regression to be "fixed" by reinstating an estimate.
 - **Surface failures loudly.** Where a fix needs a fallback path, `console.warn` on it rather than failing silently.

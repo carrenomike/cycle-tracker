@@ -1,10 +1,10 @@
-# Slice lw2 — New private sheet, new schema, migrated data (stub)
+# Slice ca2 — New private sheet, new schema, migrated data (stub)
 
 ## Scope
 
 Create a brand-new Google Sheet with a new ID and the new schema, migrate the existing history into it by script,
 review the outliers with Mike, and paste the result in. **The app is not switched over in this slice** — it keeps
-reading the old sheet, so it stays working the whole time. Slice 3 does the switch.
+reading the old sheet, so it stays working the whole time. Slice ca3 does the switch.
 
 ## Verified facts
 
@@ -41,7 +41,7 @@ reading the old sheet, so it stays working the whole time. Slice 3 does the swit
 
 ## Dependencies
 
-Slice 1 landed.
+Slice ca1 landed.
 
 ## Exit criteria
 

@@ -39,3 +39,44 @@ successful-push path. `git status` checked before switching to `-A`: the only un
 
 **Headless verification** — throwaway `check.js` in the scratchpad, fetching the live gviz JSON and replicating the
 parse and both old/new function bodies. Not committed.
+
+---
+
+## 2026-09-13 — Plan restructure: the lunation wheel is scrapped
+
+Not a slice. Mike ran `/grill-me` with "scrap the whole moon cycle circle page — my wife didn't like it. I do still
+want to save the mobile app data entry and some of the rule changes." Nine questions; every answer below is his.
+
+**What died.** `slice-lw4-wheel-home-tab.md` (the circular wheel + home tab) and `slice-lw8-dashboard-restyle.md`
+(the earthy restyle), deleted. The **design gate** — the checkpoint where Tirzah approved the visual direction —
+died with them: she asked to be hands off. `Assets/` (68 files, 273K of wheel mockups and palette studies) was
+untracked with no git history, so deleting it was unrecoverable; Mike was told that explicitly and said "Make it
+gone."
+
+**What was nearly lost with it.** lw4 was named for the wheel, but the *safety engine* lived inside it — the full
+Safe/Unsafe rule, three-over-six, the coverline, the Bleeding/Follicular/Luteal vocabulary, the missed-Day-1
+guard. That is the actual product; the circle was only a way of drawing it. Extracted whole into the new
+`slice-ca4-safety-engine.md`, which edits the existing dashboard's stat cards in place and adds no new screen. Its
+locked decisions and the **d24 / d22 / d30 / d37 / never** regression target are carried over verbatim.
+
+**The gate's replacement is a constraint, not a freedom.** With no approval checkpoint, Tirzah's screen changes
+**only** where a change is a correctness or safety requirement. Cosmetic changes to surfaces she sees are now out
+of scope for every slice in this plan. The one new thing this plan puts in front of her is ca7's staleness banner.
+
+**Tab shape settled.** Reader sees a single screen with **no tab bar at all**; writer sees `Dashboard | Log`.
+Flagged to Mike and restated in both STATE.md and ca5: hiding the tab is cosmetic, **not** a security boundary —
+the Apps Script rejecting writes without the writer token is the only thing that actually stops a write.
+
+**Dependency rewiring.** lw5 and lw7 were both blocked on lw4 *and* the design gate; both are dead, so both
+unblock. ca5 (catch-up entry) now depends on ca4 — Mike chose "safety first", so a backdated entry lands into a
+verdict that is already correct rather than one still being fixed. ca7 (viewer staleness) was repointed at ca3,
+since it touches only the read path, and can be pulled forward.
+
+**Renames.** `Plan/lunation-wheel/` → `Plan/cycle-app/`; `Docs/Archive/Lunation Wheel Log.md` → `Cycle App Log.md`;
+slices lw1-lw3 → ca1-ca3, lw5→ca5, lw6→ca6, lw7→ca7, lw9→ca8. The project `CLAUDE.md` session-start prompt and
+README's slice index follow. STATE.md's locked decisions were regrouped into Scope / Data and access / Shape /
+Rules, wheel geometry stripped, the design-gate block and the stale lw4 deviation removed.
+
+**Unchanged:** the moon stays exactly where it already shipped — the glyph strip above the timeline chart and the
+Moon at Day 1 / Moon at Ovulation columns. Nothing else lunar gets built. The dashboard is the app and is not
+restyled.
