@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 896a736 — 0 unreviewed app lines.
+**Last reviewed commit:** 3ee13e2 — 137 unreviewed app lines (ca2a). **ca3b** queued: it touched `cell()`.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_

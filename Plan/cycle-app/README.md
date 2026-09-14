@@ -77,6 +77,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 2a | `slice-ca2a-recover-time-column.md` | Recover the `Time` column ca2 silently dropped + an unmapped-column guard | 2 |
 | 3 | `slice-ca3-proxy-and-tokens.md` | Apps Script read proxy, two tokens, fragment delivery, visible auth failure | 2 |
 | 3a | `slice-ca3a-checkpoint-review.md` | Checkpoint review of `1065c1e..HEAD` — the adapter, the schema-spelling invariants, the proxy | 3 |
+| 3b | `slice-ca3b-checkpoint-review.md` | Checkpoint review of `3ee13e2..HEAD` (ca2a) — `cell()` is on every column’s read path | 1 |
 | 4 | `slice-ca4-safety-engine.md` | Real safety rule + honest status cards on the existing dashboard | 3 |
 | 5 | `slice-ca5-catch-up-entry.md` | Writer-only Log tab, catch-up list newest first | 4 |
 | 6 | `slice-ca6-write-queue.md` | Local unsent queue + persistent banner, sheet stays source of truth | 5 |

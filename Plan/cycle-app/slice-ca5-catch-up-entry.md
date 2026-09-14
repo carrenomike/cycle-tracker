@@ -24,7 +24,8 @@ via the proxy in this slice — the offline queue and unsent banner are slice 6.
 
 - **Backfill is the primary use pattern**, not same-day logging. The screen is a **catch-up list running newest
   first — today at the top, working backwards** — not a single-day form.
-- Fields, in the ca2 schema: Temp (required), Temp Quality (multi-select: off-time, disturbed), Exclude,
+- Fields, in the ca2 schema: Temp (required), Time (the time the temp was taken), Temp Quality (multi-select:
+  off-time, disturbed), Exclude,
   Flow (none / spotting / bleeding), Cervical Mucus (5-point), Cervix Texture (firm / medium / soft), Cervix
   Position (low / mid / high, optional), Breasts (none / minor / sore), Ovulation marker, Cycle Start, Note.
 - **Ticking a Temp Quality flag pre-ticks Exclude** as a suggestion. It is overridable, not forced.
@@ -75,7 +76,12 @@ backdated entry immediately moves a verdict that is already correct.)
   Cervical Mucus, Breasts, Phase and Note — no `Flow`, `Temp Quality`, `Cervix Position` or `Exclude`. A day logged
   as spotting-only, or a reading marked off-time and excluded, will be invisible in the table it was just entered
   into. Add the columns here, or the entry screen will look like it silently dropped the value.
-- ca3a removed the table's `Time` column: the ca2 schema has no `Time`, so it rendered blank on every row.
+- ~~ca3a removed the table's `Time` column: the ca2 schema has no `Time`, so it rendered blank on every row.~~
+  **Wrong — reversed by ca2a (2026-09-14).** `Time` is a real column with 88 recorded values; ca2 had dropped it
+  and this note repeated the log's false claim that it was empty. The column is back in the table and in the
+  sheet. **This slice must write it**: the entry screen takes a time alongside each temp. Note that Sheets stores
+  a time cell as a Date on its 1899 epoch day — `cell()` in `Code.gs` handles that on read, and a write path has
+  to send a string Sheets will accept as a time, not a date.
 - `adaptRows`' `flag()` helper is the single place yes/no columns are read. Anything this slice writes to
   `Cycle Start`, `Ovulation` or `Exclude` should be the literal `TRUE`, matching what a ticked Sheets checkbox
   flattens to through the proxy.
