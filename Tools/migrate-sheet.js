@@ -14,8 +14,20 @@
 //     the structured cell is left blank for a human to fill in.
 //   - Never carry a pre-created blank row across.
 
-const NEW_COLS = ['Date', 'Cycle Start', 'Temp', 'Temp Quality', 'Exclude', 'Flow',
+const NEW_COLS = ['Date', 'Cycle Start', 'Temp', 'Time', 'Temp Quality', 'Exclude', 'Flow',
   'Cervical Mucus', 'Cervix Texture', 'Cervix Position', 'Breasts', 'Ovulation', 'Note'];
+
+// Every column this migration knows how to handle. It is an allowlist on purpose,
+// but an allowlist with nothing watching the other side of it is how the original
+// run lost `Time`: the column simply had no destination and no check could see a
+// column that was never mentioned. verify() now refuses to write unless every
+// column the source actually carries appears here, so the next unlisted column
+// stops the migration instead of disappearing from it.
+const SOURCE_COLS = new Set([
+  'Day',            // -> not stored; the app derives it from Cycle Start
+  'Date', 'Temp', 'Time', 'Cervix Texture', 'Cervical Mucus', 'Breasts',
+  'Exclude', 'Cycle', 'Note',
+]);
 
 // Free text seen in the source -> new enum. Anything absent here is reported as
 // an outlier and left blank rather than guessed at.
@@ -56,6 +68,18 @@ const BREASTS_IN_NOTE = /\b(boobs?|nipples?|b\/n)\b.*\bsore|\bsore\b.*\b(boobs?|
 const OFF_TIME = /\(\s*\d{1,2}(:\d{2})?\s*(am?|pm?)?\s*\)|switched to \d/i;
 const DISTURBED = /deep sleep|after moving|travel|bakersfield|germany|zion/i;
 
+// gviz hands a time-of-day cell back as [h, m, s, ms]; a plain text cell comes
+// back as the string the sheet shows. Both are kept verbatim as "6:32 AM" rather
+// than reformatted, so a row nobody can re-read still reads the way Mike wrote it.
+function fmtTime(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  if (Array.isArray(v)) {
+    const [h, m] = v;
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  }
+  return String(v).trim();
+}
+
 const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 async function fetchRows(sheetId) {
@@ -91,6 +115,7 @@ function migrate(rows) {
     const iso = fmtDate(date);
     const note = String(r.Note || '').trim();
     const temp = r.Temp === '' || r.Temp === null ? '' : Number(r.Temp);
+    const time = fmtTime(r.Time);
     const mucusRaw = String(r['Cervical Mucus'] || '').trim();
     const textureRaw = String(r['Cervix Texture'] || '').trim();
     const breastsRaw = String(r.Breasts || '').trim();
@@ -98,7 +123,7 @@ function migrate(rows) {
 
     // A row carrying nothing but Day + Date is a pre-created placeholder, not a
     // logged day. Those caused the ca1 detectPhase bug; they do not come across.
-    if (temp === '' && !note && !mucusRaw && !textureRaw && !breastsRaw && !r.Cycle && !r.Exclude) {
+    if (temp === '' && !time && !note && !mucusRaw && !textureRaw && !breastsRaw && !r.Cycle && !r.Exclude) {
       dropped.push([iso, `empty placeholder row (Day ${r.Day || '-'})`]);
       continue;
     }
@@ -147,6 +172,7 @@ function migrate(rows) {
       Date: iso,
       'Cycle Start': isDay1 ? 'TRUE' : '',
       Temp: temp,
+      Time: time,
       'Temp Quality': '',
       Exclude: String(r.Exclude || '').trim().toUpperCase().startsWith('Y') ? 'TRUE' : '',
       Flow: flow,
@@ -188,8 +214,30 @@ function verify(src, out) {
     else if (!row.Note.includes(note)) fails.push(`note on ${date} not preserved`);
   }
   if (new Set(out.map(r => r.Date)).size !== out.length) fails.push('duplicate dates in output');
+
+  // The check that would have caught the lost `Time` column. Everything above
+  // compares a source column against its destination; this one asks whether a
+  // source column has a destination at all.
+  const seen = new Set();
+  src.forEach(r => Object.keys(r).forEach(k => { if (k !== '_date') seen.add(k); }));
+  const unmapped = [...seen].filter(c => c && !SOURCE_COLS.has(c));
+  if (unmapped.length) {
+    fails.push(`source columns this migration does not handle: ${unmapped.join(', ')} ` +
+      `— add each to SOURCE_COLS and give it a destination, or state in SOURCE_COLS why it is dropped`);
+  }
+
+  const srcTimes = srcDated.filter(r => fmtTime(r.Time)).map(r => `${fmtDate(r._date)}=${fmtTime(r.Time)}`).sort();
+  const outTimes = out.filter(r => r.Time).map(r => `${r.Date}=${r.Time}`).sort();
+  eq(srcTimes.join(','), outTimes.join(','), 'times');
+
   return fails;
 }
+
+module.exports = { migrate, verify, fmtTime, NEW_COLS, SOURCE_COLS };
+
+// Only run the migration when invoked directly, so the checks below it can
+// exercise migrate() and verify() without hitting the network.
+if (require.main !== module) return;
 
 (async () => {
   const [sheetId, outPath] = process.argv.slice(2);
@@ -215,7 +263,8 @@ function verify(src, out) {
 
   log(`\n--- VERIFICATION ---`);
   if (fails.length) { fails.forEach(f => log(`  FAIL ${f}`)); log('\nRefusing to write output.'); process.exit(1); }
-  log('  OK: every temperature, Day 1, ovulation marker, Exclude flag, bleeding day and note preserved.');
+  log('  OK: every temperature, time, Day 1, ovulation marker, Exclude flag, bleeding day and note preserved.');
+  log('  OK: every column the source carries has a destination here.');
   log('  OK: no Temp cell exists that was not in the source. No blank placeholder rows carried over.');
 
   require('fs').writeFileSync(outPath,

@@ -89,7 +89,9 @@ than a constant — this repo is public and must never carry an ID again — and
 gives, which must be outside the repo because the output is personal health data.
 
 **Source shape.** The old sheet's columns were Day, Date, Temp, Time, Cervix Texture, Cervical Mucus, Breasts,
-Exclude, Cycle, Note. `Time` was empty on every row. `Cycle` carried two different kinds of fact — `Blood` (30
+Exclude, Cycle, Note. ~~`Time` was empty on every row.~~ **FALSE — corrected 2026-09-14 (ca2a).** `Time` held 88
+values across 177 rows, 5-6am on almost all of them. Nothing in the migration ever established this; the sentence
+was written from assumption and ca3a then trusted it and deleted the display column. `Cycle` carried two different kinds of fact — `Blood` (30
 rows) and `Ovulation` (5 rows) — which split into the new `Flow` and `Ovulation` columns. The `Day` column was
 checked against date arithmetic from each Day-1 date: zero mismatches across 177 rows, so no cycle-boundary
 ambiguity to resolve. Dates are continuous from 2026-03-25 to 2026-09-17 with no gaps.
@@ -286,3 +288,46 @@ dropped-row and bad-flag warnings are `console.warn` only, invisible on a phone,
 the adapter — the one check that exercises the real 165 rows, and the only ca3a exit criterion that could not be
 met from here. All checks pass, so the `flag()` normalisation and the `hasData` change are confirmed against real
 data and not just fixtures. **ca3a is complete: every exit criterion is met, and no deviation is open.**
+
+---
+
+## ca2a — recovering the Time column (2026-09-14)
+
+**How it surfaced.** Mike asked why the Time column had disappeared from the table. ca3a had deleted it as dead
+markup, on the strength of one sentence in this log. The sentence was wrong. There was no code behind it.
+
+**What was actually lost.** Mike exported the original tracker to `.xlsx` and the real column read back as 88
+times across 177 rows — 48 at 5am, 36 at 6am, 4 outliers at 3-4am. Replaying ca2's placeholder-drop rule against
+that export reproduces the migration exactly, 165 kept and 12 dropped, and **none of the 12 dropped rows carried a
+time**, so every one of the 88 is recoverable by date. The full column-by-column audit of the export against the
+new schema found `Time` to be the only loss: Temp, Cervix Texture, Cervical Mucus, Breasts, Exclude, Cycle and
+Note all came across, with zero unmapped enum values in any of the three mapped columns. The `Backend` tab is
+derived (81 temp cells, every one present in `Data`) and stale at three cycles — not a source of anything.
+
+**Why one bug and not three.** The interesting failure is not the omission, it is that nothing could see it.
+`verify()` compared temperatures, Day-1 dates, ovulation markers, Exclude flags, bleeding days and notes — six
+columns that all exist on both sides. A source column with no destination is outside the frame of every one of
+those comparisons, so the script honestly reported OK. The migration was allowlist-shaped with nothing watching
+the other side of the allowlist, which means `Time` was never the only column at risk; it was just the only one
+that happened to be populated.
+
+**Fixes.**
+- `migrate-sheet.js` carries `Time` (new `fmtTime` handles gviz's `[h,m,s,ms]` and plain text alike), and
+  `SOURCE_COLS` now names every column the source is allowed to have. `verify()` refuses to write if the sheet
+  carries a column not on that list — empty or not, because an empty column today is a filled one tomorrow.
+- The placeholder-drop rule now counts `Time` as content. Before, a row logged with nothing but a time would have
+  been dropped as blank — a second instance of the same root cause, latent rather than fired.
+- `Tools/migrate-selfcheck.js` is new and pins all of the above without needing the network or the old sheet.
+- `Code.gs`: Sheets stores a time-of-day cell as a Date on its 1899-12-30 epoch day, and `cell()` formatted every
+  Date as `yyyy-MM-dd`. Pasting the recovered column would have turned all 88 times into "1899-12-30" — the
+  identical failure mode, one layer down, found by looking rather than by it going wrong.
+- `index.html`: the Time column is restored to the table, and `hasData()` counts it.
+- `verify-proxy.js` asserts 88 rows carry a time and that none arrives shaped like a date.
+
+**Not done here.** The recovered values still have to be pasted into the sheet by hand: the proxy is read-only by
+design and the old sheet stays Restricted, since its ID has been public since the first commit. Aligned file
+written outside the repo for Mike to paste.
+
+**Process note.** ca3a deleted a column because this log said it was empty. The log said it was empty because ca2
+assumed it. Nothing verified it at either step. A claim about data that no check produced does not belong in this
+log stated as fact.

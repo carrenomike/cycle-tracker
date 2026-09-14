@@ -65,7 +65,14 @@ function doGet(e) {
  */
 function cell(v, tz) {
   if (v === null || v === undefined || v === '') return '';
-  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  if (v instanceof Date) {
+    // Sheets stores a time-of-day cell ("6:32 AM") as a Date on its epoch day,
+    // 1899-12-30. Formatting that as yyyy-MM-dd would hand the app "1899-12-30"
+    // instead of the time — the whole Time column, silently wrong. Anything in
+    // 1900 or later is a real calendar date.
+    if (v.getFullYear() < 1900) return Utilities.formatDate(v, tz, 'h:mm a');
+    return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  }
   if (typeof v === 'boolean') return v ? 'TRUE' : '';
   return String(v).trim();
 }

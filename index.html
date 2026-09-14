@@ -268,8 +268,9 @@ function splitCycles(rows) {
 // Every column a logged day can carry. A row that has none of them is empty.
 // ca2's columns are listed too — without them a spotting-only or
 // cervix-position-only day (which ca5 can write) would read as an empty row.
+// Keep this list complete: a column missing from it makes real days look blank.
 function hasData(r) {
-  return r.Temp || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
+  return r.Temp || r.Time || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
          r['Cervical Mucus'] || r['Cervix Position'] || r.Breasts ||
          r['Cycle Start'] || r.Cycle || r.Note;
 }
@@ -576,6 +577,7 @@ function render(cycles) {
       <table>
         <thead><tr>
           <th>Day</th><th>Date</th><th>Temp</th>
+          <th class="hide-sm">Time</th>
           <th class="hide-sm">Cervix</th>
           <th class="hide-sm">Mucus</th>
           <th class="hide-sm">Breasts</th>
@@ -799,6 +801,7 @@ function buildLogRows(cycle) {
       <td>${r.Day}</td>
       <td style="white-space:nowrap">${r.Date}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
+      <td class="hide-sm" style="white-space:nowrap">${r.Time || ''}</td>
       <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
       <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
       <td class="hide-sm">${r.Breasts || ''}</td>

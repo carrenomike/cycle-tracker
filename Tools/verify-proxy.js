@@ -23,6 +23,10 @@ const EXPECT = {
   last: '2026-09-11',
   day1: ['Mar 25', 'Apr 26', 'May 25', 'Jul 1', 'Aug 14'],
   ovDays: [16, 18, 23, 31, 23],
+  // ca2 dropped the source sheet's Time column and nothing noticed for two
+  // slices. Counted straight off the original export: 88 of the 165 rows carry
+  // a time. Asserting the count here means the recovery cannot quietly regress.
+  times: 88,
 };
 
 let failed = 0;
@@ -142,6 +146,17 @@ function splitCycles(rows) {
   dupes.length ? fail(`duplicate dates: ${dupes.join(', ')}`) : pass('no duplicate dates');
   const outOfOrder = rows.filter((r, i) => i && r.Date <= rows[i - 1].Date).map(r => r.Date);
   outOfOrder.length ? fail(`dates out of order at: ${outOfOrder.join(', ')}`) : pass('dates strictly ascending');
+
+  if (!reader.cols.includes('Time')) fail('the sheet has no Time column (ca2a recovery not pasted yet)');
+  else {
+    is(rows.filter(r => r.Time).length, EXPECT.times, 'rows carrying a time');
+    // A time that arrives as a date means the proxy formatted a time-of-day cell
+    // with the calendar format -- see cell() in Apps Script/Code.gs.
+    const asDates = rows.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.Time)).map(r => r.Date);
+    asDates.length
+      ? fail(`Time arrived as a date on: ${asDates.slice(0, 5).join(', ')} (redeploy Code.gs)`)
+      : pass('times arrive as times, not dates');
+  }
 
   console.log('\n--- ADAPTED ROWS REPRODUCE THE DASHBOARD ---');
   const adapted = loadAdapter()(rows).filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
