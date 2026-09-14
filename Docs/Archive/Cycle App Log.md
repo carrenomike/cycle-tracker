@@ -452,3 +452,56 @@ pulled forward ahead of ca4** under the clause in its own Dependencies section.
 The lesson worth keeping: *the honest failure and the dishonest one look identical on the phone.* A timeout knows
 only that nothing came back. Naming a cause it has not observed does not help the user and actively misdirects the
 person debugging it.
+
+## ca7 — viewer cache, staleness banner, 3-day expiry (2026-09-14)
+
+Pulled forward ahead of ca4 by ca3b's deploy night. The slice as written was about Tirzah opening the app on a
+train; what it actually had to absorb was trap 4 from the night before, where a *silent* failure drew an error
+screen that named a cause nobody had observed.
+
+**What the viewer now sees.** Every successful read is saved to `localStorage.cycleCache` as
+`{proxy, at, cols, rows}`. Any failure — `onerror`, the 20s timeout, or a payload that will not render — falls back
+to that copy and draws the real dashboard with a dismissible banner naming the date the data was saved. Past three
+days the safety card itself is replaced: `Safe`/`Unsafe` becomes **Out of date**, hint *"Saved data from <date> —
+too old to judge."* The override sits after the Safe/Unsafe branch and never reads the dismiss flag, so closing the
+banner cannot restore a verdict; dismissal is in-memory only, so a reload brings it back. `Tools/staleness-selfcheck.js`
+binds all of that, plus the exact cutoff, by extracting the `// >>> STALENESS` block from `index.html`.
+
+**Staleness is measured from the last successful read, never from a failure.** Google's `/exec` redirect
+intermittently 404s. If one failed fetch could age the data, the banner would cry stale on a perfectly current
+sheet, and Tirzah would learn to ignore it.
+
+**The cache refuses to outlive a redeploy.** `cacheIsUsable()` requires `c.proxy === PROXY_URL`. That is the direct
+answer to trap 4: a viewer holding a cached page for an archived deployment must not also be shown data that page
+saved, sitting there looking live.
+
+**The timeout stopped lying, and now tries to fix itself.** The quota sentence is gone — a timeout knows only that
+nothing came back. On a *first* load (`_loadedOk` false), once per tab (`sessionStorage.cycleSelfRefreshed`), the
+page now does `location.replace(location.pathname + '?v=' + Date.now())` to pull a fresh `index.html` past the
+browser cache. It has to happen from inside the page because `manifest.json` sets `"start_url": "."` — a `?v=`
+typed in the address bar never reaches the installed icon. No service worker was added, deliberately: the whole
+class of bug came from a stale cached entry point, and a service worker is a bigger, stickier version of exactly
+that. Offline with no saved copy, the reload fires once and then the error message stands.
+
+**ca3a's data warnings finally became visible.** `warn()` inside the adapter collects the dropped-row and
+unreadable-yes/no messages into `_dataWarnings`, and they render as lines in the same banner instead of living only
+in a console nobody opens on a phone. `bannerHTML(staleInfo, warnings, dismissed, now)` takes all of its state as
+arguments purely so the self-check can exercise it with no DOM — that is why it looks over-parameterised for a
+function with one caller. All lines are HTML-escaped; they carry sheet text.
+
+**Two things the quota handler must not do.** `writeCache` on a storage failure removes `cycleCache` alone, never
+`localStorage.clear()` — the access token shares that storage and losing it locks the user out with no way back.
+And the success path renders *before* it caches, so a payload that throws cannot overwrite a good saved copy and
+break the offline path too.
+
+**Self-review caught one.** `_loadedOk = true` was originally set after `renderPayload()`, so a render failure left
+it false and a later timeout would have been free to yank the page out from under a server that had demonstrably
+answered. Moved ahead of the render: a valid reply proves `PROXY_URL` is live, whatever the rows then do.
+
+**ca7a queued.** README step 6 triggered on its *second* condition — not size (~240 lines, nowhere near 1,500) but
+*a shared helper and a safety invariant were touched*: `warn()` sits inside the `// >>> ADAPTER` markers ca4 will
+edit, the safety card gained a third outcome ca4 will rewrite, and the entire read path ca5/ca6 build beside was
+replaced. The stub is explicitly marked skippable at Mike's discretion; if skipped, ca7's lines carry into ca8.
+
+Outstanding and not verifiable from here: Tirzah's live check — aeroplane mode, confirm the banner and its named
+date, dismiss it, reload, confirm it is back.

@@ -33,3 +33,18 @@ Every earlier slice, landed and committed.
 - Every finding is either fixed, promoted to a new numbered slice, or written into STATE's open-deviations section
   with the reason it was not fixed.
 - **Live test is Mike's**, on both phones, over the whole app end to end.
+
+## Added by ca7 (2026-09-14)
+
+- Two of the failure paths on the list above changed shape in ca7, so review them as ca7 left them, not as the
+  earlier slices described them:
+  - **Quota rejection.** The 20s timeout no longer claims a quota — it says only that nothing came back. The quota
+    wording now exists only where the server actually reports it (`read-failed:` out of `Code.gs`). Confirm no
+    other message asserts a cause it has not observed; that was ca3b's lesson and it is the easiest one to undo.
+  - **Stale cache.** ca7 owns it: `cycleCache`, the dismissible staleness banner, and the 3-day "Out of date"
+    override. `Tools/staleness-selfcheck.js` covers the rules; what it cannot cover is the wiring in `render()`
+    surviving ca4's rewrite of the same card. Check that by hand.
+- **New failure path to add to the list: the self-reload.** On a first-load timeout ca7 calls
+  `location.replace(pathname + '?v=<now>')` once per tab to escape a cached page pointing at an archived `/exec`.
+  Confirm it cannot loop (it is gated on `sessionStorage.cycleSelfRefreshed` and on no successful load having
+  happened), and that a genuinely offline phone still lands on the cached dashboard rather than a reload cycle.

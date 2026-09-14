@@ -5,27 +5,27 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 24f6067 — 0 unreviewed app lines. Next checkpoint review is ca8.
+**Last reviewed commit:** 24f6067 — ~240 unreviewed app lines (ca7). Next checkpoint review is ca7a, then ca8.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
-- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg, never in the repo). 2026-09-13: 177 rows → 165, 12
-  placeholders dropped, no Temp invented. Dropped `Time`; ca2a got it back.
-- **ca3** — proxy live, verified 2026-09-13: both roles read, bad tokens rejected, new sheet private, old sheet
-  refused, paste intact. `deploy.bat` was silently skipping the push — fixed.
-- **ca3a** — review of `1065c1e..HEAD`. Fixed: `hasData` blind to ca2's columns; strict `=== 'TRUE'` reads (now a
-  warning `flag()`); `Code.gs` opened the sheet twice. 8 findings pushed on. PASS.
-- **ca2a** — `Time` recovered from Mike's xlsx export: 88 values / 177 rows, none on a dropped row; a column audit
-  found it was the only loss. `migrate-sheet` carries it and refuses unmapped columns; `cell()` no longer formats
-  a time as a date; column back in the table. Pasted, redeployed, `verify-proxy` PASS 2026-09-14.
-- **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. `cell()` formats by column name, not a year; `tz`
-  returned and checked; `SOURCE_COLS` is a destination map and a column landing nowhere now fails; `hasData` names
-  `Ovulation` (ca4 deletes the `r.Cycle` it leaned on); counts are floors. All checks PASS live 2026-09-14.
+- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. Dropped `Time`.
+- **ca3** — proxy live 2026-09-13: both roles read, bad tokens rejected, old sheet refused. `deploy.bat` was
+  silently skipping the push — fixed.
+- **ca3a** — review of `1065c1e..HEAD`: `hasData`, strict `=== 'TRUE'` reads, double sheet open. 8 pushed on. PASS.
+- **ca2a** — `Time` recovered from Mike's xlsx export (88 values, none on a dropped row); an audit found it was the
+  only loss. `migrate-sheet` carries it and refuses unmapped columns. `verify-proxy` PASS.
+- **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. PASS live 2026-09-14.
+- **ca7** — pulled forward ahead of ca4. Display cache (`cycleCache`, invalidated by a `PROXY_URL` change),
+  dismissible banner naming the cached date and carrying ca3a's data warnings, 3-day "Out of date" expiry on the
+  safety card; honest 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`
+  PASS, adapter + migrate still PASS. Tirzah's aeroplane-mode check outstanding.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **ca7 runs before ca4** — a stale cached page stranded the app 2026-09-14; ca7 owns the cache and the fix.
+- **ca7a is optional** — README step 6 triggered on "touched a shared helper", not on size (~240 lines). Skip
+  straight to ca4 if preferred; if skipped, ca7's lines carry forward to ca8.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_

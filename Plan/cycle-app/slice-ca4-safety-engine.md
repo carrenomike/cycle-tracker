@@ -130,3 +130,25 @@ that trail the end of cycles 3 and 4.
   synthesis can go without taking a column with it. Drop the `r.Cycle` term at the same time as the synthesis.
 - `Tools/adapter-selfcheck.js` now also asserts that `hasData` names every column of `NEW_COLS`. If this slice
   changes what a logged day can hold, that check is where it will complain.
+
+## Added by ca7 (2026-09-14) — ca7 ran before this slice
+
+- **Every line number in "Verified facts" above is now stale.** ca7 inserted ~220 lines into `index.html`
+  (a `// >>> STALENESS` block before `render()`, banner CSS, and a rewritten load path). Re-find the code by name,
+  not by line: `detectPhase`, `detectOvRow`, `calcCoverline`, `lastDataIndex`, and the `safeStatus` / `safeClass` /
+  `safeHint` branch inside `render()`. The structure of each is unchanged.
+- **The Safe/Unsafe branch now has a third outcome after it.** ca7 appended an override immediately below the
+  branch: when the dashboard is drawn from an expired cache it replaces the verdict with **"Out of date"**
+  (`safeClass = 'unknown'`). Whatever this slice rewrites the rule into, that override must stay, must stay
+  **last**, and must not consult `_bannerDismissed` — a dismissed banner may never re-enable a stale verdict.
+  `Tools/staleness-selfcheck.js` asserts all three and will fail if the rewrite reorders them.
+- **`Tools/staleness-selfcheck.js` greps `render()` by name** for `safeStatus = 'Out of date'` and for the last
+  `safeStatus = 'Unsafe'`. If this slice renames those variables or moves the verdict out of `render()`, update
+  that check in the same commit rather than deleting it.
+- **The adapter gained `warn()`**, inside the `// >>> ADAPTER` markers, alongside `flag()`. It pushes to
+  `_dataWarnings` and still calls `console.warn`. When this slice deletes the `Cycle` half of the adapter it also
+  deletes the Ovulation-and-bleeding collision `warn()` — that is expected; leave `warn()` itself and the two
+  `flag()` / unreadable-date calls, which feed the banner ca3a asked for.
+- **`renderPayload(cols, rows)` is now the single path from rows to a drawn dashboard**, used by both the live read
+  and the cached fallback. Anything this slice adds between parsing and `render()` belongs there, or the offline
+  view will quietly disagree with the live one.

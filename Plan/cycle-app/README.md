@@ -82,6 +82,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 5 | `slice-ca5-catch-up-entry.md` | Writer-only Log tab, catch-up list newest first | 4 |
 | 6 | `slice-ca6-write-queue.md` | Local unsent queue + persistent banner, sheet stays source of truth | 5 |
 | 7 | `slice-ca7-viewer-staleness.md` | Viewer cache, dismissible staleness banner, 3-day expiry | 3 |
+| 7a | `slice-ca7a-checkpoint-review.md` | Checkpoint review of `24f6067..HEAD` (ca7) — the cache, the expiry override, the reworked read path | 7 |
 | 8 | `slice-ca8-review.md` | Code review of the whole plan's committed diff | all |
 
 Run in index order unless a "Depends on" column says otherwise. Slice 7 only needs the read path from slice 3, so

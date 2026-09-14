@@ -37,3 +37,22 @@ Slice ca5 landed.
   flush removes it and the re-read row matches; a partial flush leaves exactly the failed entries queued.
 - **Live test is Mike's**, on his phone: log with aeroplane mode on, confirm the banner appears and persists across
   a reload, turn the radio back on, confirm the flush and the banner clearing.
+
+## Added by ca7 (2026-09-14) — ca7 landed first, and it already built a banner
+
+- **The `.banner` / `.banner-x` CSS and `bannerHTML()` already exist** in `index.html`, built for ca7's viewer-side
+  staleness message. Reuse the CSS. Do **not** reuse `id="banner"` or `dismissBanner()` — this slice's queue banner
+  is persistent and not dismissible, and both banners can be on screen at once for Mike (unsent entries *and* a
+  failed read are exactly the same bad-signal moment).
+- `bannerHTML(staleInfo, warnings, dismissed, now)` takes all its state as arguments and returns a string; it is
+  called once inside `render()`. Add the queue banner alongside that call rather than inventing a second injection
+  point.
+- **`_dataWarnings` is already the list of "things the user should see about this data."** ca3a's dropped-row and
+  bad-yes/no messages go through it. A stuck or partially-failed flush is the same kind of message — consider
+  pushing to it rather than building a third mechanism.
+- **The display cache ca7 wrote is `localStorage.cycleCache`**, one record `{proxy, at, cols, rows}`, written only
+  after a payload actually renders and refused if `proxy` no longer matches `PROXY_URL`. The queue must be its own
+  key: ca7's write path deliberately drops **only** `cycleCache` on a quota error, so that recovery must never be
+  able to take unsent entries with it.
+- ca7's `failLoad()` falls back to the cache on a failed read. **A failed *write* must never be answered from the
+  cache** — a queued entry that has not landed is not in `cycleCache` and must not look like it is.

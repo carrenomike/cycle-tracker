@@ -94,6 +94,33 @@ main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
 .status-caution { color: #e65100; }
 .status-unknown { color: #9e9e9e; }
 
+/* ── Staleness / data-quality banner ─────────────── */
+.banner {
+  position: relative;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-left: 4px solid #e65100;
+  border-radius: 12px;
+  padding: 14px 46px 14px 16px;
+  margin-bottom: 16px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #5d4037;
+}
+.banner div + div { margin-top: 7px; }
+.banner-x {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #8d6e63;
+  padding: 4px 9px;
+}
+
 /* ── Section cards ────────────────────────────────── */
 .section {
   background: white;
@@ -370,6 +397,69 @@ function lastDataIndex(cycle) {
   return cycle.length - 1;
 }
 
+// ── Staleness ──────────────────────────────────────────────────────────────
+
+// >>> STALENESS — extracted and executed verbatim by Tools/staleness-selfcheck.js,
+// which matches on these two marker lines. Keep them, and keep this block free of
+// anything that only exists in a browser.
+
+// How old saved data may get before its safety verdict stops being shown. The
+// verdict moves with the cycle day, which advances every midnight whether or
+// not the phone can reach the sheet — so a stale "Safe" is worse than no answer.
+const CACHE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+// A saved copy is only trusted if it came from the deployment this page talks
+// to. A PROXY_URL change means the page itself was replaced, and Google answers
+// an archived /exec with an HTTP 200 error page — so without this check the old
+// data would sit there looking live against a URL that no longer exists.
+function cacheIsUsable(c, proxyUrl) {
+  return !!c && c.proxy === proxyUrl
+    && typeof c.at === 'number' && c.at > 0
+    && Array.isArray(c.cols) && Array.isArray(c.rows) && c.rows.length > 0;
+}
+
+function cacheExpired(at, now) { return now - at >= CACHE_MAX_AGE_MS; }
+
+function cacheDate(at) {
+  return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Name the date. "May be out of date" tells the reader nothing they can act on.
+function stalenessText(at, now) {
+  const when = new Date(at).toLocaleString('en-US',
+    { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return cacheExpired(at, now)
+    ? `Could not reach the sheet. This is saved data from ${when} — more than 3 days old, so the safety status is hidden until it loads again.`
+    : `Could not reach the sheet. Showing saved data from ${when}.`;
+}
+function escHTML(s) {
+  return String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+}
+
+// One banner carries both the staleness line and any data-quality warnings, in
+// the same plain wording as the load failures — not a second vocabulary. All
+// state arrives as arguments so the self-check can exercise it without a DOM.
+function bannerHTML(staleInfo, warnings, dismissed, now) {
+  if (dismissed) return '';
+  const lines = [];
+  if (staleInfo) lines.push(stalenessText(staleInfo.at, now));
+  for (const w of warnings) lines.push(w);
+  if (!lines.length) return '';
+  return `<div class="banner" id="banner">
+    <button class="banner-x" onclick="dismissBanner()" aria-label="Dismiss">&times;</button>
+    ${lines.map(l => `<div>${escHTML(l)}</div>`).join('')}
+  </div>`;
+}
+// <<< STALENESS
+
+// Session-only by design: the banner returns on the next open and on the next
+// failed fetch, and dismissing it never cancels the 3-day expiry.
+function dismissBanner() {
+  _bannerDismissed = true;
+  const el = document.getElementById('banner');
+  if (el) el.remove();
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────
 
 function render(cycles) {
@@ -442,6 +532,15 @@ function render(cycles) {
       : dayNumber <= ovDay
       ? `${ovDay - dayNumber} day${ovDay - dayNumber !== 1 ? 's' : ''} until ovulation (Day ${ovDay})`
       : `Safe in ${(ovDay + 4) - dayNumber} day${(ovDay + 4) - dayNumber !== 1 ? 's' : ''} — post-ovulation wait`;
+  }
+
+  // Past the cutoff, show no verdict rather than a confident stale one. This
+  // sits after the Safe/Unsafe branch so it overrides both, and it is
+  // independent of the banner — dismissing that changes nothing here.
+  if (_staleInfo && cacheExpired(_staleInfo.at, Date.now())) {
+    safeStatus = 'Out of date';
+    safeClass  = 'unknown';
+    safeHint   = `Saved data from ${cacheDate(_staleInfo.at)} — too old to judge.`;
   }
 
   // ── Stats cards ──────────────────────────────────────────────────────────
@@ -591,11 +690,15 @@ function render(cycles) {
       </div>
     </div>`;
 
-  const footerHTML = `<div class="footer">Last updated ${new Date().toLocaleTimeString()} &nbsp;&middot;&nbsp; Auto-refreshes every 10 minutes</div>`;
+  // Drawn from the cache, "Last updated <now>" would be a lie.
+  const footerHTML = _staleInfo
+    ? `<div class="footer">Saved ${new Date(_staleInfo.at).toLocaleString()} &nbsp;&middot;&nbsp; Retrying every 10 minutes</div>`
+    : `<div class="footer">Last updated ${new Date().toLocaleTimeString()} &nbsp;&middot;&nbsp; Auto-refreshes every 10 minutes</div>`;
 
   allCycles = cycles;
 
-  document.getElementById('app').innerHTML = statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
+  document.getElementById('app').innerHTML =
+    bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
 
   drawTimelineChart(cycles);
   drawOverlayChart(cycles);
@@ -1014,6 +1117,15 @@ function drawOverlayChart(cycles) {
 const PROXY_URL = 'https://script.google.com/macros/s/AKfycbxmV4lU0JN1CjiUXlZ9B4FBWGGz9yGA5TJiGBe-Am_HNxblQERYZgw-9csv9LjeA7QD/exec';
 
 const TOKEN_KEY = 'cycleToken';
+// The display cache lives in its own key so a quota failure can be recovered
+// by dropping it alone, never by touching the access token.
+const CACHE_KEY = 'cycleCache';
+// One self-reload per tab, so a genuinely dead server cannot loop the page.
+const REFRESH_KEY = 'cycleSelfRefreshed';
+
+let _staleInfo      = null;   // set while the screen is drawn from the cache
+let _bannerDismissed = false;
+let _loadedOk        = false; // a live read has succeeded in this session
 
 // The token arrives once, in the URL fragment (#t=...). Text after "#" is
 // never sent to any server, so it stays out of logs and out of Referer
@@ -1052,7 +1164,7 @@ function bootstrapToken() {
 const TOKEN = bootstrapToken();
 
 function showMessage(msg, detail, canRetry) {
-  const esc = s => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const esc = escHTML;
   document.getElementById('app').innerHTML = `
     <div class="spinner">
       ${esc(msg)}<br>
@@ -1074,6 +1186,13 @@ function showError(msg) { showMessage('Could not load data.', msg, true); }
 // when it rewrites those call sites against Flow and Ovulation directly.
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// A row the adapter throws away, or a yes/no column it cannot read, moves the
+// cycle day and therefore the safety verdict. Nobody ever sees a console
+// warning on a phone, so collect them here and let ca7's banner show them too.
+// renderPayload() clears this before every parse.
+let _dataWarnings = [];
+function warn(msg) { _dataWarnings.push(msg); console.warn(msg); }
+
 // Sheets turns a ticked checkbox into a boolean and the proxy flattens that to
 // 'TRUE'. A value typed by hand is just as deliberate, so accept the obvious
 // spellings — and shout about anything else instead of reading it as blank. A
@@ -1085,7 +1204,7 @@ function flag(v, col, date) {
   const s = String(v == null ? '' : v).trim();
   if (!s) return '';
   if (TRUTHY.has(s.toUpperCase())) return 'TRUE';
-  console.warn(`${date}: ${col} holds "${s}", which is not a yes/no value — treating it as not set.`);
+  warn(`${date}: ${col} holds "${s}", which is not a yes/no value — it was read as not set.`);
   return '';
 }
 
@@ -1094,7 +1213,7 @@ function adaptRows(rows) {
   const out = [];
   for (const r of rows) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(r.Date || '').trim());
-    if (!m) { console.warn('Row with an unreadable Date was skipped:', r.Date); continue; }
+    if (!m) { warn(`A row dated "${r.Date}" could not be read and was left out.`); continue; }
     // Local midnight at both ends, so the day difference is exact and immune to DST.
     const d = new Date(+m[1], +m[2] - 1, +m[3]);
 
@@ -1115,7 +1234,7 @@ function adaptRows(rows) {
     // Spotting is deliberately NOT 'Blood' — the old sheet never counted it as
     // bleeding, and ca4's opening-bleed-run rule depends on that staying true.
     if (row.Ovulation === 'TRUE' && r.Flow === 'bleeding') {
-      console.warn(`${r.Date}: marked both Ovulation and bleeding — treating as Ovulation.`);
+      warn(`${r.Date}: marked both Ovulation and bleeding — it was read as Ovulation.`);
     }
     row.Cycle = row.Ovulation === 'TRUE' ? 'Ovulation'
               : r.Flow === 'bleeding'    ? 'Blood'
@@ -1128,6 +1247,80 @@ function adaptRows(rows) {
 
 let _scriptEl = null;
 let _loadTimer = null;
+
+function readCache() {
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); }
+  catch (e) { console.error('The saved copy of the data could not be read:', e); }
+  return cacheIsUsable(c, PROXY_URL) ? c : null;
+}
+
+function writeCache(cols, rows) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ proxy: PROXY_URL, at: Date.now(), cols: cols, rows: rows }));
+  } catch (e) {
+    // Full, blocked, or private mode. Drop only our own key — the access token
+    // shares this storage and losing it would lock the user out entirely.
+    console.error('Could not save a copy of the data for offline use:', e);
+    try { localStorage.removeItem(CACHE_KEY); } catch (e2) { console.error(e2); }
+  }
+}
+
+// The one place rows become a rendered dashboard, so the cached path and the
+// live path cannot drift apart.
+function renderPayload(cols, rows) {
+  const objs = rows.map(cells => {
+    const obj = {};
+    cols.forEach((c, i) => { obj[c] = cells[i] == null ? '' : String(cells[i]); });
+    return obj;
+  });
+  _dataWarnings = [];
+  const filtered = adaptRows(objs).filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
+  const cycles   = splitCycles(filtered);
+  if (cycles.length === 0) throw new Error('No cycle data found in sheet');
+  render(cycles);
+}
+
+// A failed read is not evidence the data changed — Google's /exec redirect
+// intermittently 404s. Fall back to the last good copy and say how old it is,
+// rather than replacing a working dashboard with an error screen. Staleness is
+// therefore driven by the age of the last SUCCESSFUL read, never by one failure.
+function failLoad(msg) {
+  const c = readCache();
+  if (c) {
+    try {
+      _staleInfo = { at: c.at };
+      _bannerDismissed = false;   // a new failure always brings the banner back
+      renderPayload(c.cols, c.rows);
+      return;
+    } catch (e) {
+      console.error('The saved copy of the data could not be rendered:', e);
+      _staleInfo = null;
+    }
+  }
+  showError(msg);
+}
+
+// A redeploy leaves viewers holding a cached page that points at the previous
+// /exec. Google answers an archived /exec with an HTTP 200 error page, so the
+// script tag "loads", onerror never fires and the callback never runs — the 20s
+// timeout is the only symptom. Reload the page itself past the browser cache.
+// manifest.json's start_url means a "?v=" typed in the address bar never reaches
+// an installed icon, so this has to happen from inside the page.
+function selfRefresh() {
+  if (_loadedOk) return false;   // the URL is demonstrably fine; don't yank the page
+  try {
+    if (sessionStorage.getItem(REFRESH_KEY)) return false;
+    sessionStorage.setItem(REFRESH_KEY, '1');
+  } catch (e) {
+    console.warn('Could not record a self-refresh, so none was attempted:', e);
+    return false;
+  }
+  console.warn('No reply in 20s on a first load \u2014 reloading the app past the browser cache.');
+  showMessage('Still loading\u2026', 'Fetching the latest version of the app.', false);
+  location.replace(location.pathname + '?v=' + Date.now());
+  return true;
+}
 
 function loadData() {
   if (!PROXY_URL) {
@@ -1149,35 +1342,44 @@ function loadData() {
     try {
       if (!resp || resp.ok !== true) {
         const err = resp && resp.error;
+        // Access and setup problems get their own message, never a cached
+        // dashboard pretending to be live.
+        if (err === 'not-configured') {
+          return showMessage('This app is not finished being set up.',
+            'The server has no access tokens configured yet.', false);
+        }
         if (err === 'no-access') {
-          return showMessage('No access.',
-            'This link is not valid any more. Ask Mike for a new one.', false);
+          return showMessage('This link is not valid any more.',
+            'Ask Mike for a new one.', false);
         }
         throw new Error(err || 'The server sent a response this app could not read');
       }
-      const rows = resp.rows.map(cells => {
-        const obj = {};
-        resp.cols.forEach((c, i) => { obj[c] = cells[i] == null ? '' : String(cells[i]); });
-        return obj;
-      });
-      const filtered = adaptRows(rows).filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
-      const cycles   = splitCycles(filtered);
-      if (cycles.length === 0) throw new Error('No cycle data found in sheet');
-      render(cycles);
+      // A valid reply proves PROXY_URL is live, so record that before rendering
+      // — a render failure is a data problem, not a reason to reload the app.
+      _loadedOk = true;
+      _staleInfo = null;
+      renderPayload(resp.cols, resp.rows);
+      // Only cache what actually rendered, so a bad payload cannot overwrite a
+      // good saved copy and leave the offline path broken too.
+      writeCache(resp.cols, resp.rows);
     } catch (e) {
       console.error(e);
-      showError(e.message);
+      failLoad(e.message);
     }
   };
 
   _scriptEl = document.createElement('script');
-  _scriptEl.onerror = () => { done(); showError('Could not reach the server — check your internet connection'); };
+  _scriptEl.onerror = () => { done(); failLoad('Could not reach the server — check your internet connection'); };
   _scriptEl.src = `${PROXY_URL}?t=${encodeURIComponent(TOKEN)}&callback=_sheetCallback`;
   // JSONP reports nothing when a request simply never comes back. Without this
   // the app sits on the spinner forever and nobody is told anything.
   _loadTimer = setTimeout(() => {
     done();
-    showError('The server did not respond. It may be over its daily quota — try again later.');
+    // Say only what is known: no reply arrived. The old wording blamed the
+    // daily quota, which sent Mike hunting a quota that was fine on 2026-09-14
+    // when the real cause was a cached page pointing at an archived /exec.
+    if (selfRefresh()) return;
+    failLoad('The server did not reply within 20 seconds.');
   }, 20000);
   document.head.appendChild(_scriptEl);
 }
