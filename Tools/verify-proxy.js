@@ -41,13 +41,23 @@ function loadAdapter() {
   return new Function(`${src.slice(a, b)}; return adaptRows;`)();
 }
 
-async function call(url, token) {
+// Apps Script redirects /exec to a second Google host, and that second hop
+// intermittently 404s or 5xxs under back-to-back requests. Retry a few times,
+// out loud — a genuine 404 still fails the run rather than hiding in here.
+async function call(url, token, attempt = 1) {
   const res = await fetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`);
+  if ((res.status === 404 || res.status >= 500) && attempt < 4) {
+    console.log(`  retry  HTTP ${res.status} from Google, attempt ${attempt} — waiting ${attempt}s`);
+    await new Promise(r => setTimeout(r, attempt * 1000));
+    return call(url, token, attempt + 1);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const text = await res.text();
   try { return JSON.parse(text); }
   catch { throw new Error(`Response was not JSON: ${text.slice(0, 200)}`); }
 }
+
+const pause = () => new Promise(r => setTimeout(r, 400));
 
 // splitCycles, duplicated deliberately: it is three lines and the app's copy is
 // wrapped in browser-only code. If it grows, extract it behind markers instead.
@@ -79,6 +89,7 @@ function splitCycles(rows) {
         ? pass(`${what} is rejected cleanly (error: no-access)`)
         : fail(`${what} returned ${JSON.stringify(r).slice(0, 200)}`);
     } catch (e) { fail(`${what}: ${e.message}`); }
+    await pause();
   }
 
   console.log('\n--- ROLES ---');
