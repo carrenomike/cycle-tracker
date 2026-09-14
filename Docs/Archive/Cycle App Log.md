@@ -281,3 +281,8 @@ dropped-row and bad-flag warnings are `console.warn` only, invisible on a phone,
 
 **Marker advanced** from `1065c1e` to this slice's commit, tally reset to zero. Mike's live test passed
 2026-09-14 — dashboard unchanged, as a review slice should leave it.
+
+**`verify-proxy.js` re-run and passing, 2026-09-14.** Mike ran it against the live deployment after ca3a changed
+the adapter — the one check that exercises the real 165 rows, and the only ca3a exit criterion that could not be
+met from here. All checks pass, so the `flag()` normalisation and the `hasData` change are confirmed against real
+data and not just fixtures. **ca3a is complete: every exit criterion is met, and no deviation is open.**

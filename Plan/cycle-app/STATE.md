@@ -18,11 +18,11 @@ _(One line per slice. Detail lives in the archive log.)_
   silently skipping the push — fixed, it now always pushes.
 - **ca3a** — review of `1065c1e..HEAD`. Fixed: `hasData` blind to ca2's new columns; adapter read `Cycle Start`/
   `Ovulation` as strict `=== 'TRUE'`, ignoring others silently (now a warning `flag()`); dead `Time` column;
-  `Code.gs` opened the sheet twice. 8 findings pushed on. `adapter-selfcheck` PASS; live 2026-09-14.
+  `Code.gs` opened the sheet twice. 8 findings pushed on. `adapter-selfcheck` + `verify-proxy` PASS; live 2026-09-14.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **`verify-proxy.js` not re-run since ca3a touched the adapter.** Needs the live `/exec` URL + both tokens — Mike.
+_(None.)_
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
