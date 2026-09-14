@@ -13,14 +13,13 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
   12 empty placeholders dropped, nothing lost, no Temp invented. New sheet created and pasted by Mike 2026-09-13;
   its ID is deliberately not in the repo. App untouched, still on the old sheet — ca3 switches it.
-- **ca3** — code landed, **not verified**: `Apps Script/Code.gs`, token bootstrap + row adapter in `index.html`,
-  `manifest.json`, two tools. Deploying needs Mike in a browser — follow `Apps Script/SETUP.md` start to finish.
+- **ca3** — proxy deployed and verified headless 2026-09-13: both roles read, three bad-token paths rejected, new
+  sheet private, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov days 16/18/23/31/23, cycle day 31.
+  Awaiting Mike's live test on both phones, then SETUP.md step 10 (revoke the old sheet).
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **ca3 is not finished.** `PROXY_URL` in `index.html` is empty and the Apps Script is undeployed, so the app
-  loads nothing. `Tools/verify-proxy.js` has not been run: the ca2 paste is still unread programmatically and
-  ca3's exit criteria are unmet. The old sheet is still public — SETUP.md step 7 revokes it, last, not first.
+- **The old sheet is still public.** Revoked only after both phones load — SETUP.md step 10.
 - ca4 deletes the adapter's `Cycle` half (`index.html`, `>>> ADAPTER` markers) as it rewrites those call sites
   against `Flow`/`Ovulation`. The `Day` half stays.
 

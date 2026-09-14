@@ -184,3 +184,17 @@ from what actually ships.
 sheet ID are deliberately absent from this repo. `verify-proxy.js` has therefore not been run, so the ca2 paste
 is *still* unread programmatically and the exit criteria are not yet met. The old sheet is still public and must
 stay that way until the proxy is confirmed; step 7 of `SETUP.md` is the last thing to happen, not the first.
+
+**Verified 2026-09-13.** `Tools/verify-proxy.js` passes end to end against the live deployment. No token, an empty
+token and a wrong token are each rejected with `no-access`; the reader token reads as `reader` and the writer as
+`writer`; a logged-out fetch of the new sheet is refused with HTTP 401. The ca2 paste is confirmed intact on its
+first programmatic read — 165 rows, 2026-03-25 to 2026-09-11, no duplicates, strictly ascending — and the adapted
+rows reproduce the pre-switch dashboard exactly: 5 cycles, Day-1 dates Mar 25 / Apr 26 / May 25 / Jul 1 / Aug 14,
+ovulation on days 16/18/23/31/23, no spotting row promoted to `Blood`, and cycle day 31 today from an Aug 14 start.
+
+**Found in passing — Google's /exec redirect is flaky.** The first run failed three of five access checks with
+HTTP 404, including a reader token that was in fact correct. Apps Script bounces `/exec` to a second Google host
+and that hop intermittently drops back-to-back requests; the same URL succeeded twice in the same run. The tool
+now retries a 404 or 5xx up to three times with a visible `retry` line and spaces the probes 400ms apart, so a
+hiccup no longer reads as a failure while a genuine 404 still fails the run. Worth remembering for ca5: the write
+path will hit the same redirect and needs the same treatment.
