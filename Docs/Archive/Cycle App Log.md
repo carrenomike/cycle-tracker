@@ -331,3 +331,7 @@ written outside the repo for Mike to paste.
 **Process note.** ca3a deleted a column because this log said it was empty. The log said it was empty because ca2
 assumed it. Nothing verified it at either step. A claim about data that no check produced does not belong in this
 log stated as fact.
+
+**Closed 2026-09-14.** Mike pasted the 165-row column, redeployed the Apps Script, and `verify-proxy` passes every
+check including the two new ones: 88 rows carry a time, and none arrives shaped like a date. The `Time` column is
+back on the live dashboard with its real values. ca5 is unblocked.

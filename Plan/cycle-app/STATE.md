@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 3ee13e2 — ca2a app lines unreviewed.
+**Last reviewed commit:** 896a736 — 0 unreviewed app lines.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -20,11 +20,11 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca2a** — `Time` recovered from Mike's xlsx export: 88 values / 177 rows, none on a dropped row. Full column
   audit: `Time` was the only loss. `migrate-sheet` now carries it + refuses any unmapped source column
   (`migrate-selfcheck.js`); `cell()` in `Code.gs` no longer formats a time as a date; column back in the table.
+  Pasted, redeployed, `verify-proxy` PASS live 2026-09-14.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **The recovered `Time` column is not in the sheet yet.** Values are aligned and waiting outside the repo; Mike
-  pastes them and redeploys `Code.gs`. Until then `verify-proxy` fails its two Time checks. **Blocks ca5.**
+- _(none)_
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
