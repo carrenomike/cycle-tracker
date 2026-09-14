@@ -38,6 +38,21 @@ via the proxy in this slice — the offline queue and unsent banner are slice 6.
 - **Writer token only.** The entry screen must not render at all for the reader token, and the endpoint must reject
   a reader token server-side as well — not just hide the UI.
 - **Every write failure is visible.** No silent swallow, no optimistic UI that pretends a failed write succeeded.
+
+## Added by ca3 (2026-09-13)
+
+- The proxy is live and is `Apps Script/Code.gs`; `Apps Script/SETUP.md` is the redeploy sequence. **Editing the
+  script is not enough — Deploy > Manage deployments > edit > New version, or nothing changes.**
+- `doGet` already resolves the caller to `'reader'` or `'writer'` before touching the sheet, and `reply()` handles
+  JSON and JSONP. Reuse both; the role string is already there for `doPost` to reject a reader on.
+- **Google's `/exec` redirect is intermittently flaky.** It bounces to a second host that drops back-to-back
+  requests with a 404; ca3's first verification run failed three of five checks on a correct setup. A write that
+  fails this way has *not* necessarily failed. Whatever this slice ships must not double-write on a retry — make
+  the write idempotent per date, which the "one row per date, append or update" rule already allows.
+- Writes cannot use JSONP (it is GET-only). The write path needs `fetch` against the `/exec` URL, so confirm CORS
+  behaves from GitHub Pages before building the UI on top of it — this is the slice's first unknown.
+- The token lives in `localStorage` under `cycleToken`, read once into `TOKEN` at startup by `bootstrapToken()`.
+- `Tools/verify-proxy.js` is the harness to extend for the write endpoint; it already has the retry logic.
 - Phone-first: thumb-reachable, minimal typing, no tiny tap targets.
 
 ## Dependencies

@@ -24,6 +24,19 @@ Line numbers confirmed by reading `index.html` at commit `b1d0ef5` (post-ca1).
   safety engine can call it directly without re-checking.
 - `index.html:342-355` — `calcCoverline` already returns `null` until ovulation is marked, and already excludes
   rows flagged `Exclude`. Its baseline window is the 6 usable temps before the ovulation marker.
+- **Added by ca3 (2026-09-13).** Line numbers above were re-checked at commit `05c3064` and are all still exact.
+  Two things changed underneath them:
+  - `calcCoverline`'s Exclude test is now `!(r.Exclude || '').trim()` — any non-empty value means excluded. It used
+    to compare against `'Y'`, which ca2's `TRUE` would have silently defeated, quietly readmitting excluded temps
+    into every coverline. Keep the non-empty test; do not reintroduce a literal.
+  - `index.html` now carries an **adapter** between the `// >>> ADAPTER` and `// <<< ADAPTER` markers. It
+    synthesises the `Day` and `Cycle` fields ca2 deleted from the sheet, which is the only reason the call sites
+    this slice edits still compile. **This slice owns deleting the `Cycle` half of it**: as each reader of
+    `r.Cycle` is rewritten against `Flow` and `Ovulation` directly, drop the corresponding line from the adapter,
+    and delete the collision warning with it. The `Day` half stays — nothing replaces it in this plan.
+  - Note `Flow === 'spotting'` is deliberately **not** `'Blood'`. The opening-bleed-run rule depends on that.
+  - `Tools/adapter-selfcheck.js` runs offline and asserts the adapter's behaviour. Keep it passing, or delete the
+    assertions that no longer describe anything.
 - **A migrated row may have no temperature at all** (6 do, including Day 1 of cycle 1). "Usable" means *has a temp
   and is not flagged `Exclude`* — a temp-less row must be skipped by the coverline and three-over-six windows, not
   read as a zero or as a gap in the day count.

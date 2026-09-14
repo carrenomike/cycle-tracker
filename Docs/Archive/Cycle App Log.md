@@ -198,3 +198,25 @@ and that hop intermittently drops back-to-back requests; the same URL succeeded 
 now retries a 404 or 5xx up to three times with a visible `retry` line and spaces the probes 400ms apart, so a
 hiccup no longer reads as a failure while a genuine 404 still fails the run. Worth remembering for ca5: the write
 path will hit the same redirect and needs the same treatment.
+
+**Live test passed 2026-09-13** — but only after a deploy that never happened. Mike's first run of the four live
+checks reported the token still sitting in the address bar and the dashboard loading in a fresh incognito profile
+with no token at all. Both looked like ca3 bugs and neither was: `git status` showed **nine unpushed commits**.
+The live site was still the pre-ca3 build, which reads the old sheet directly and needs no token — so every
+symptom was the old app behaving exactly as designed.
+
+**Root cause, and it was ours.** `deploy.bat` ran `git add -A`, and when nothing was staged it printed "Nothing to
+deploy" and exited **0**. No edited files is not the same as nothing to deploy: work committed in an earlier
+session sits unpushed and invisible. The script reported success while the site stayed stale — precisely the
+silent background failure the global CLAUDE.md warns about, and the second time `deploy.bat` has produced one
+(ca1 fixed a staging bug in the same file). Fixed at `05c3064`: the commit step is now the only conditional part
+and `git push` always runs. Nine commits went out, and all four live checks then passed on the second attempt.
+
+**Checkpoint review scheduled.** ca3 touched a shared helper (the adapter, which every reader of `Day` and `Cycle`
+now routes through) and changed an invariant (`Exclude` is any non-empty value, not `'Y'`), so the README's
+"shared helper or invariant" trigger fires regardless of diff size. `slice-ca3a-checkpoint-review.md` is written
+and sits between ca3 and ca4. The marker stays at `1065c1e` — about 375 unreviewed app lines — until ca3a
+advances it.
+
+**Still open at handover:** whether the old sheet's public access has actually been revoked. It has been readable
+by anyone holding the link since the first commit. ca3a re-checks it before anything else.

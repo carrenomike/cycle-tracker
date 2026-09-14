@@ -5,23 +5,23 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e — ~240 unreviewed app lines (ca1: 53; ca2: 0, tool-only; ca3: ~190). Checkpoint at ~1,500.
+**Last reviewed commit:** 1065c1e — ~375 unreviewed app lines (ca1 53; ca2 0, tool-only; ca3 ~320). ca3a reviews these.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
-- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, verified headless 2026-08-26. Awaiting Mike's live test.
+- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
-  12 empty placeholders dropped, nothing lost, no Temp invented. New sheet created and pasted by Mike 2026-09-13;
-  its ID is deliberately not in the repo. App untouched, still on the old sheet — ca3 switches it.
-- **ca3** — proxy deployed and verified headless 2026-09-13: both roles read, three bad-token paths rejected, new
+  12 empty placeholders dropped, nothing lost, no Temp invented. Sheet ID deliberately not in the repo.
+- **ca3** — proxy live, verified headless + live 2026-09-13: both roles read, three bad-token paths rejected, new
   sheet private, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov days 16/18/23/31/23, cycle day 31.
-  Awaiting Mike's live test on both phones, then SETUP.md step 10 (revoke the old sheet).
+  Mike's four live checks pass. `deploy.bat` was also silently skipping the push — fixed, it now always pushes.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **The old sheet is still public.** Revoked only after both phones load — SETUP.md step 10.
-- ca4 deletes the adapter's `Cycle` half (`index.html`, `>>> ADAPTER` markers) as it rewrites those call sites
-  against `Flow`/`Ovulation`. The `Day` half stays.
+- **The old sheet may still be public — UNCONFIRMED.** SETUP.md step 10. Public since the first commit, so until
+  it is Restricted the whole history is readable and ca3's privacy goal is not met. ca3a re-checks this first.
+- **ca3a checkpoint review is due before ca4** — ca3 touched a shared helper (the adapter) and an invariant
+  (`Exclude`). Marker stays at 1065c1e until ca3a advances it.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_

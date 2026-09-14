@@ -38,3 +38,15 @@ a stale-cache problem shows up sooner.
   does not survive a reload and does not suppress expiry.
 - **Live test is Tirzah's**, on her phone: aeroplane mode, confirm the banner and the named date, dismiss it,
   reload, confirm it is back. She is hands off by choice, so this is the one ask — keep it to the one check.
+
+## Added by ca3 (2026-09-13)
+
+- The read path this slice caches on top of is `loadData()` in `index.html`. It is JSONP against the Apps Script
+  `/exec` URL, refreshes every 10 minutes, and already has a 20s timeout plus distinct visible messages for a bad
+  token, an unreachable server, a quota rejection and a malformed response. **Do not add a second failure vocabulary
+  — extend those.**
+- `localStorage` already holds the access token under `cycleToken`, and `navigator.storage.persist()` is already
+  requested at startup. The display cache this slice adds shares that storage; do not let a cache eviction or a
+  quota error take the token with it.
+- **Google's `/exec` redirect intermittently 404s.** A single failed read is not evidence the data is stale, so
+  the staleness banner must be driven by the age of the last *successful* read, never by one failed fetch.
