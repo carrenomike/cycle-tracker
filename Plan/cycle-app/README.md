@@ -74,6 +74,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 |---|---|---|---|
 | 1 | `slice-ca1-fix-live-bugs.md` | Fix the four confirmed defects in the shipped app + `deploy.bat` staging bug | — |
 | 2 | `slice-ca2-new-sheet-and-migration.md` | New private sheet, new schema, migration script, outlier review | 1 |
+| 2a | `slice-ca2a-recover-time-column.md` | Recover the `Time` column ca2 silently dropped + an unmapped-column guard | 2 |
 | 3 | `slice-ca3-proxy-and-tokens.md` | Apps Script read proxy, two tokens, fragment delivery, visible auth failure | 2 |
 | 3a | `slice-ca3a-checkpoint-review.md` | Checkpoint review of `1065c1e..HEAD` — the adapter, the schema-spelling invariants, the proxy | 3 |
 | 4 | `slice-ca4-safety-engine.md` | Real safety rule + honest status cards on the existing dashboard | 3 |

@@ -10,19 +10,19 @@ at session start; the README isn't — this line is the only way a session learn
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
-- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg, never in the repo). Verified 2026-09-13: 177 rows →
-  165, 12 empty placeholders dropped, nothing lost, no Temp invented.
+- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg, never in the repo). 2026-09-13: 177 rows → 165, 12
+  placeholders dropped, no Temp invented. **But it dropped `Time` — see deviations.**
 - **ca3** — proxy live, verified headless + live 2026-09-13: both roles read, three bad-token paths rejected, new
-  sheet private, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov days 16/18/23/31/23, cycle day 31.
-  Mike's four live checks pass; old sheet Restricted and confirmed refused 2026-09-13. `deploy.bat` was also
-  silently skipping the push — fixed, it now always pushes.
-- **ca3a** — review of `1065c1e..HEAD`. Fixed: `hasData` blind to ca2's new columns; adapter read `Cycle Start`/
-  `Ovulation` as strict `=== 'TRUE'`, ignoring others silently (now a warning `flag()`); dead `Time` column;
-  `Code.gs` opened the sheet twice. 8 findings pushed on. `adapter-selfcheck` + `verify-proxy` PASS; live 2026-09-14.
+  sheet private, old sheet Restricted and refused, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov
+  days 16/18/23/31/23, cycle day 31. `deploy.bat` was silently skipping the push — fixed, it now always pushes.
+- **ca3a** — review of `1065c1e..HEAD`. Fixed: `hasData` blind to ca2's new columns; `Cycle Start`/`Ovulation` read
+  as strict `=== 'TRUE'`, ignoring others silently (now a warning `flag()`); `Code.gs` opened the sheet twice. 8
+  findings pushed on. `adapter-selfcheck` + `verify-proxy` PASS; live 2026-09-14. Missed the `Time` loss.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-_(None.)_
+- **ca2 silently dropped the old sheet's `Time` column.** `migrate-sheet.js` never reads it; `verify()` only checks
+  columns the new schema has, so "nothing lost" was blind. Recoverable — old sheet kept. **ca2a; blocks ca5.**
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
