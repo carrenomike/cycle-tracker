@@ -5,71 +5,53 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (ca1: 53; ca2 tooling: 0, no app code)
+**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (ca1: 53; ca2 is tooling only, no app code)
 
 ## Done
-
-_(One line per slice, appended as each lands.)_
-
-- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`. Headless check vs live sheet 2026-08-26: (a) `detectPhase`
-  window moved from blank rows 31-35 to logged rows 9-13; output `follicular` both ways today (coincidence, not a
-  no-op). (b) `detectOvDay` unchanged 16/18/23/31 for cycles 1-4, `null` for cycle 5. (c) Cycle day = 13 by date
-  math from 2026-08-14, matches hand-count and the old value today; no longer drifts on unlogged days. Awaiting
-  Mike's live test.
+_(One line per slice. Detail lives in the archive log.)_
+- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`; verified headless vs the live sheet 2026-08-26.
+  Awaiting Mike's live test.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
-  12 empty placeholders dropped; 159 temps identical; 5 Day-1s, 5 ov markers, 3 Excludes, 30 bleeding days and
-  every note preserved; no invented Temp. Outliers resolved with Mike: `Breasts = sore` recovered on 10 rows
-  (08-02..08-11), `Cervix Position = low` on 1, Temp Quality blank everywhere (15 candidates, his call in ca5),
-  free-text mucus/cervix mapped with original wording appended to Note. **TSV handed over; sheet not yet created,
+  12 empty placeholders dropped, nothing lost, no Temp invented. **TSV handed over; sheet not yet created,
   nothing pasted.** App untouched, still on the old sheet.
 
 ## Open deviations from spec
-
 _(Things later slices must know. One line each. Delete once resolved.)_
-
 - **Cycle 5 HAS an ovulation marker** (day 23, 2026-09-05), added after 2026-08-26. ca1's and ca2's "cycle 5 has
   none" is stale — ca4 plans for 5 markers, not 4.
 - **ca2's "day 7/8 notes 97.64 / 97.59" fact is wrong**: cycle-5 second readings are `97.59` day 9 and `97.88`
   day 11; no `97.64` exists. Never-parse-a-note-into-Temp stands regardless.
 - **Migrated rows may have a blank Temp** (6 do, incl. Day 1 of cycle 1). Temp is required for *new* Log entries
   only (ca5); readers must tolerate a temp-less row.
-- **Cervix Position stays blank unless the source names a position** (1 row). Correlated with texture in reality,
-  but a derived position would double-count one observation in ca4's rules.
+- **`Temp Quality` is blank on all 165 migrated rows.** 15 candidate rows are listed in the migration tool's
+  output; Mike sets them by hand once the Log tab exists (ca5).
 
 ## Locked decisions
-
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
-
 ### Scope
-
 - **The lunation wheel is scrapped** (2026-09-13, Tirzah didn't like it). No circular view, no lunation framing,
   no second visual language. Its safety and display rules survive in ca4; its geometry does not.
-- **The dashboard is the app.** It is not restyled and not rebuilt — there is no visual redesign in this plan.
+- **The dashboard is the app** — not restyled, not rebuilt. There is no visual redesign in this plan.
 - **The moon stays where it already is**: the glyph strip above the timeline chart and the Moon at Day 1 / Moon at
   Ovulation columns. Nothing else lunar gets built.
-- **Tirzah is hands off.** No design gate, no approval checkpoint. In exchange, surfaces she sees change **only**
-  for correctness or safety reasons — never cosmetically.
-
+- **Tirzah is hands off** — no design gate, no approval checkpoint. In exchange, surfaces she sees change **only**
+  for correctness or safety reasons, never cosmetically.
 ### Data and access
-
 - The sheet is the **single source of truth**. Local storage holds only unsent entries plus a display cache.
-- **No pre-created future rows.** One row per actually-logged day. Blank placeholders caused the ca1 `detectPhase`
-  bug and must not come back.
+- **No pre-created future rows.** One row per actually-logged day — blanks caused the ca1 `detectPhase` bug.
 - The **old sheet ID is permanently burned** (public repo since the first commit). New sheet, new ID, mandatory.
 - The **original spreadsheet is kept untouched** as a historical keepsake.
 - The repo **stays public** on GitHub Pages. All security lives in the two tokens, not in repo privacy.
 - **Two tokens:** reader (Tirzah) and writer (Mike). The writer token also grants read — one link per person.
 - A bad or missing token must produce a **visible message**, never a blank screen.
 - Target browser is **Chrome on Android (Galaxy S22 Ultra)** only. No Safari/ITP workarounds.
-
+- **Cervix Position is never inferred from texture.** Correlated in reality, but a derived position would
+  double-count one observation in ca4's rules.
 ### Shape
-
 - **Same app both sides, one URL.** Reader sees a single screen with **no tab bar at all**. Writer sees two tabs,
   `Dashboard | Log`. Hiding the tab is cosmetic only — **writes are enforced in the Apps Script**, never the client.
 - Writer-only surfaces: the Log tab and the unsent-queue banner. Viewer-only: staleness banner and 3-day expiry.
-
 ### Rules
-
 - Ovulation day is a **manual marker only**. No calculation may ever declare an ovulation day.
 - **No ovulation marker => no coverline, and the post-ovulation safe window never opens.** Three-over-six may only
   *delay* the opening, never trigger it. (Verified 2026-08-26: without this, 3o6 fired on cycle-5 day 12 on margins

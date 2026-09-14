@@ -80,3 +80,54 @@ Rules, wheel geometry stripped, the design-gate block and the stale lw4 deviatio
 **Unchanged:** the moon stays exactly where it already shipped — the glyph strip above the timeline chart and the
 Moon at Day 1 / Moon at Ovulation columns. Nothing else lunar gets built. The dashboard is the app and is not
 restyled.
+
+
+## Slice ca2 — New schema and migration (2026-09-13, commit 8ca2a9a)
+
+**Tool.** `Tools/migrate-sheet.js`, plain Node, no dependencies. Takes the old sheet ID as a CLI argument rather
+than a constant — this repo is public and must never carry an ID again — and writes its TSV to a path the caller
+gives, which must be outside the repo because the output is personal health data.
+
+**Source shape.** The old sheet's columns were Day, Date, Temp, Time, Cervix Texture, Cervical Mucus, Breasts,
+Exclude, Cycle, Note. `Time` was empty on every row. `Cycle` carried two different kinds of fact — `Blood` (30
+rows) and `Ovulation` (5 rows) — which split into the new `Flow` and `Ovulation` columns. The `Day` column was
+checked against date arithmetic from each Day-1 date: zero mismatches across 177 rows, so no cycle-boundary
+ambiguity to resolve. Dates are continuous from 2026-03-25 to 2026-09-17 with no gaps.
+
+**Dropped rows (12).** A row carrying nothing but Day and Date is a pre-created placeholder, not a logged day.
+Six are past missed days (04-24, 05-02, 05-06, 05-11, 05-24, 07-26) and six are the future rows 09-12..09-17 that
+caused the ca1 `detectPhase` bug. Rows with no Temp but *some* other data were kept, not dropped — five bleeding
+days and one travel note, including 2026-03-25, which is Day 1 of cycle 1 and carries a Cycle Start flag.
+
+**Never parsed a note into a Temp.** Seven notes carry a second thermometer reading (07-10 `97.62`, 07-11 `98.02
+(7am) after moving`, 07-17 `97.37 (4a)`, 08-12 `Spotting, 98.74`, 08-22 `97.59`, 08-24 `97.88`, 09-07 `97.8
+(3am)`, 09-08 `97.89 (3:30)`). All stayed in the Note. The ca2 spec claimed cycle 5's second readings sat on days
+7 and 8 with values 97.64 and 97.59; the sheet actually has 97.59 on day 9 and 97.88 on day 11, and no 97.64
+anywhere. The rule holds regardless of which rows are misaligned.
+
+**Free text mapped, wording preserved.** 13 cervix-texture and 16 cervical-mucus entries were free text. Each maps
+to the new enum and the original wording is appended to the Note (`cervix: Harder, closer to opening`), so the
+mapping is lossless and reversible. Mucus: Watery/Copius fluid to Watery; Sticky/Thick and sticky to Sticky; Thick
+lotion/Clumpy lotion/Thick jelly mucus/Thick mucus to Creamy; every egg-white variant to Egg-white. Texture:
+Squishy/Soft/Softer/Super soft/Very soft to soft; Getting firmer/Firm inside (soft outside) to medium; Harder,
+closer to opening/Little harder and rubbery to firm.
+
+**Outliers, decided with Mike.** (a) `Breasts = sore` recovered on ten rows 08-02..08-11 where he had logged the
+symptom in the Note instead of the column. (b) `Cervix Position` filled only where the source names a position —
+one row, 2026-04-13 `low`. Mike asked whether texture and position could be mapped to each other since they are
+correlated; they are (soft/high/open/wet near ovulation, firm/low/closed/dry away from it) but the correlation is
+a tendency, not a rule, and a position derived from texture is not an independent observation, so a later ca4 rule
+reading both would count one data point twice. Left blank. (c) `Temp Quality` left blank on all 165 rows; 15 rows
+have notes hinting off-time or disturbed readings and are listed in the tool's output for Mike to set by hand.
+
+**Verification.** The tool verifies against the source and refuses to write if anything fails: every temperature
+identical by date, every Day-1 date, every ovulation marker, every Exclude flag and every bleeding day present,
+every source note contained in the migrated note, no duplicate dates, and no Temp cell that did not exist in the
+source. 177 rows in, 165 out. Five Cycle Starts, five ovulation markers, 159 temps, three Excludes.
+
+**Found in passing:** cycle 5 now carries an ovulation marker on day 23, 2026-09-05. Both ca1's verification and
+the ca2 spec state that cycle 5 has none — Tirzah marked it some time after 2026-08-26. Recorded as an open
+deviation because ca4's safety engine plans around the marker count.
+
+**Not done in this slice:** the new sheet does not exist yet and nothing has been pasted. The app is untouched and
+still reads the old sheet, exactly as ca2 requires.
