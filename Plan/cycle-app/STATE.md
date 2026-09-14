@@ -9,11 +9,10 @@ at session start; the README isn't — this line is the only way a session learn
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
-- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`; verified headless vs the live sheet 2026-08-26.
-  Awaiting Mike's live test.
+- **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, verified headless 2026-08-26. Awaiting Mike's live test.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
-  12 empty placeholders dropped, nothing lost, no Temp invented. **TSV handed over; sheet not yet created,
-  nothing pasted.** App untouched, still on the old sheet.
+  12 empty placeholders dropped, nothing lost, no Temp invented. **TSV handed over; sheet not yet created, nothing
+  pasted.** App untouched, still on the old sheet.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
@@ -23,15 +22,14 @@ _(Things later slices must know. One line each. Delete once resolved.)_
   day 11; no `97.64` exists. Never-parse-a-note-into-Temp stands regardless.
 - **Migrated rows may have a blank Temp** (6 do, incl. Day 1 of cycle 1). Temp is required for *new* Log entries
   only (ca5); readers must tolerate a temp-less row.
-- **`Temp Quality` is blank on all 165 migrated rows.** 15 candidate rows are listed in the migration tool's
-  output; Mike sets them by hand once the Log tab exists (ca5).
+- **`Temp Quality` is blank on all 165 migrated rows.** 15 candidates listed in the tool's output; Mike sets them by hand in ca5.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
 ### Scope
 - **The lunation wheel is scrapped** (2026-09-13, Tirzah didn't like it). No circular view, no lunation framing,
   no second visual language. Its safety and display rules survive in ca4; its geometry does not.
-- **The dashboard is the app** — not restyled, not rebuilt. There is no visual redesign in this plan.
+- **The dashboard is the app** — not restyled, not rebuilt. No visual redesign in this plan.
 - **The moon stays where it already is**: the glyph strip above the timeline chart and the Moon at Day 1 / Moon at
   Ovulation columns. Nothing else lunar gets built.
 - **Tirzah is hands off** — no design gate, no approval checkpoint. In exchange, surfaces she sees change **only**
