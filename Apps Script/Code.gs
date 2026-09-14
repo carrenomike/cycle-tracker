@@ -24,15 +24,21 @@ const WRITER_TOKEN = '';  // Mike — read now, write from ca5
 function doGet(e) {
   const p = (e && e.parameter) || {};
 
+  // Config before tokens, deliberately. The repo's copy of this file is a
+  // template with the three constants blanked, so pasting it over the editor
+  // wipes them — and with blank tokens EVERY request fails the role check. That
+  // reports 'no-access' and sends you hunting a token problem that isn't there.
+  // "This deployment is not set up" is not a secret; say it first. (2026-09-14,
+  // after a redeploy did exactly this.)
+  if (!SHEET_ID || !READER_TOKEN || !WRITER_TOKEN) {
+    return reply(p.callback, { ok: false, error: 'not-configured' });
+  }
+
   // Token check happens before any sheet access, so a bad token costs no quota.
   const role = p.t && p.t === WRITER_TOKEN ? 'writer'
              : p.t && p.t === READER_TOKEN ? 'reader'
              : null;
   if (!role) return reply(p.callback, { ok: false, error: 'no-access' });
-
-  if (!SHEET_ID || !READER_TOKEN || !WRITER_TOKEN) {
-    return reply(p.callback, { ok: false, error: 'not-configured' });
-  }
 
   try {
     const ss    = SpreadsheetApp.openById(SHEET_ID);

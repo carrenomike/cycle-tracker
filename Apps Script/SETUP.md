@@ -38,6 +38,12 @@ Copy the **/exec** URL it gives you.
 > Every time you change `Code.gs`, you must **Deploy → Manage deployments →
 > edit → New version**. Saving alone changes nothing that is live.
 
+> **Re-entering the secrets is part of every paste.** The repo's `Code.gs` is a
+> template: `SHEET_ID`, `READER_TOKEN` and `WRITER_TOKEN` are blank in it, so
+> pasting it over the editor wipes the live values. Put all three back *before*
+> deploying, or every request comes back `not-configured`. (Happened 2026-09-14
+> on the ca3b redeploy.)
+
 ## 4. Point the app at it
 
 In `index.html`, set `PROXY_URL` to that /exec URL, then run `deploy.bat`.

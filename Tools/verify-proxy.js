@@ -103,6 +103,9 @@ function splitCycles(rows) {
       const r = await call(url, token);
       r.ok === false && r.error === 'no-access'
         ? pass(`${what} is rejected cleanly (error: no-access)`)
+        : r.error === 'not-configured'
+        ? fail(`${what}: the deployment has blank constants — the repo's Code.gs is a TEMPLATE, ` +
+               `pasting it over the editor wipes SHEET_ID and both tokens. Re-enter them and redeploy.`)
         : fail(`${what} returned ${JSON.stringify(r).slice(0, 200)}`);
     } catch (e) { fail(`${what}: ${e.message}`); }
     await pause();
