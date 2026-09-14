@@ -10,7 +10,7 @@
 //
 // Tools/verify-proxy.js checks the same adapter against the real sheet; this
 // one covers the edges real data may not contain (a DST crossing, a row before
-// the first Cycle Start, an unreadable date).
+// the first Cycle Start, an unreadable date, an odd yes/no spelling).
 
 const fs = require('fs');
 const path = require('path');
@@ -21,28 +21,30 @@ const b = src.indexOf('// <<< ADAPTER');
 if (a < 0 || b < 0) throw new Error('Could not find the ADAPTER markers in index.html');
 const adaptRows = new Function(`${src.slice(a, b)}; return adaptRows;`)();
 
-const row = (Date_, cycleStart, Flow, Ovulation) =>
-  ({ Date: Date_, 'Cycle Start': cycleStart, Flow, Ovulation });
+const row = (Date_, cycleStart, Flow, Ovulation, Exclude) =>
+  ({ Date: Date_, 'Cycle Start': cycleStart, Flow, Ovulation, Exclude });
 
 const got = adaptRows([
   row('2026-03-24', '', '', ''),            // before any Cycle Start — no day number
   row('2026-03-25', 'TRUE', 'bleeding', ''),
   row('2026-03-26', '', 'spotting', ''),    // spotting must NOT become 'Blood'
   row('2026-03-29', '', '', ''),            // a gap must not shift the day number
-  row('2026-04-09', '', '', 'TRUE'),
-  row('2026-11-05', 'TRUE', '', ''),        // after the Nov 1 DST change
-  row('2026-11-06', '', '', ''),
+  row('2026-04-09', '', '', 'y'),           // hand-typed yes/no spellings still count
+  row('2026-11-05', 'Yes', '', ''),         // after the Nov 1 DST change
+  row('2026-11-06', '', '', '', 'TRUE'),
+  row('2026-11-07', 'maybe', '', ''),       // not a yes/no value — warns, reads as unset
   row('bad-date', '', '', ''),              // skipped, with a warning
-]).map(r => [r.Date, r.Day, r.Cycle].join('|'));
+]).map(r => [r.Date, r.Day, r.Cycle, r.Exclude].join('|'));
 
 const want = [
-  'Mar 24||',
-  'Mar 25|1|Blood',
-  'Mar 26|2|',
-  'Mar 29|5|',
-  'Apr 9|16|Ovulation',
-  'Nov 5|1|',
-  'Nov 6|2|',
+  'Mar 24|||',
+  'Mar 25|1|Blood|',
+  'Mar 26|2||',
+  'Mar 29|5||',
+  'Apr 9|16|Ovulation|',
+  'Nov 5|1||',
+  'Nov 6|2||TRUE',
+  'Nov 7|3||',
 ];
 
 console.log(got.join('\n'));

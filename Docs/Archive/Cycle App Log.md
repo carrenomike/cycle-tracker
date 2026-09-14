@@ -225,3 +225,59 @@ by anyone holding the link since the first commit. ca3a re-checks it before anyt
 anonymously against all three read routes — the `gviz` feed, the CSV export and the normal edit view — and each
 returns HTTP 401. The sheet ID has been public in this repo since the first commit and is now inert. The sheet
 itself is kept, private, as the keepsake. **ca3 is complete: every exit criterion is met.**
+
+## ca3a — Checkpoint review of the ca3 range (2026-09-13/14, commit CA3A_SHA)
+
+Review only, no features. Range `1065c1e..HEAD`, Plan and Docs excluded: ~830 added lines, of which ~320 are app
+or server code. Four defects found and fixed, eight findings deliberately left to the slices that own them.
+
+**The one that mattered: two spellings for the same idea.** ca3's `Exclude` fix changed that column's test from
+`!== 'Y'` to "any non-empty value", which is right — but nobody changed the other three yes/no columns to match.
+`Cycle Start` and `Ovulation` were still compared with a strict `=== 'TRUE'`. Sheets flattens a ticked checkbox to
+the boolean `true`, the proxy's `cell()` turns that into the string `'TRUE'`, and the comparison holds — so the
+migrated data works and every fixture passes. The failure only appears when a human types the flag by hand.
+`yes`, `Y`, `x`, `TRUE ` with a trailing space: each reads as *not set*, with no warning anywhere. A `Cycle Start`
+that fails to register does not produce a visible error — it **merges two cycles**, which moves the cycle day,
+which moves the safe/unsafe verdict. A wrong answer delivered confidently, from a typo, in the one part of this
+app that has a real-world consequence.
+
+Fixed at the parse boundary rather than at three call sites: one `flag()` helper in the adapter normalises
+`Cycle Start`, `Ovulation` and `Exclude`, accepts `TRUE/YES/Y/X/1` case-insensitively, and `console.warn`s by date
+and column name on anything else non-empty rather than swallowing it. Downstream readers are untouched — the
+helper emits `'TRUE'` or `''`, which is exactly what they already expect.
+
+**`hasData` had drifted out of schema.** It still listed only old-schema columns, so a row carrying nothing but
+`Flow`, `Temp Quality`, `Exclude`, `Cervix Position` or `Cycle Start` read as an *empty* row — and `detectPhase`,
+`lastDataIndex` and the log table's `row-empty` class all trust it. Inert today, because ca2 dropped every
+contentless row on migration, so no such row currently exists. It becomes live the moment ca5 can write one: a
+spotting-only day, or a reading marked off-time and excluded, would be entered and then vanish. Made
+schema-complete rather than deleted, because ca4 is about to rewrite its three callers anyway — the decision to
+delete it belongs there, and is written into that slice.
+
+**Two smaller ones.** The log table rendered a `Time` column that the ca2 schema does not have, blank on all 165
+rows — removed. `Code.gs` called `SpreadsheetApp.openById` twice per request, the second time only to read the
+spreadsheet's timezone — now one open, passed through.
+
+**Checked and clean.** The adapter's DST arithmetic (both ends normalised to local midnight, `Math.round` on the
+difference — Nov 5→7 across the change yields days 1/2/3); rows before the first `Cycle Start` (no day number,
+filtered out, as before); spotting never promoted to `Blood`; the six temp-less rows; the 29 rows whose original
+wording was folded into `Note`. In `Code.gs`: the token check does run before any sheet access, and blank token
+constants cannot be matched by a blank `t=` parameter because the truthiness test short-circuits first — the
+`not-configured` branch is unreachable for tokens but still catches a blank `SHEET_ID`. Every client failure path
+was walked rather than trusted: missing proxy URL, missing token, `no-access`, network error, 20s JSONP timeout,
+malformed response and empty cycle list each produce a distinct visible message.
+
+**`adapter-selfcheck.js` extended** to cover the hand-typed spellings and a junk value (`Cycle Start: "maybe"`
+warns and reads as unset). Passes. `verify-proxy.js` needs the live `/exec` URL and both tokens, which are
+deliberately absent from this public repo, so Mike re-runs it before ca4.
+
+**Eight findings pushed into the slices that own them**, per the README's discipline — not appended to STATE and
+not bolted onto this slice. ca4: the pre-ovulation `Safe` branch is unreachable dead code (`ovDay` only exists
+after ovulation has passed, so `dayNumber < ovDay - 6` can never be true on a live cycle — harmless, it fails
+closed, but it makes the rule look like it has an early window it does not have); `Exclude` reaches only the
+coverline, so an excluded reading still plots on both charts and can still be the "Last Temp" card; `hasData`'s
+future; and the removal of the adapter's `Cycle` half. ca5: four ca2 columns missing from the log table. ca7: the
+dropped-row and bad-flag warnings are `console.warn` only, invisible on a phone, and ca7 owns the banner.
+
+**Marker advanced** from `1065c1e` to this slice's commit, tally reset to zero. Mike's live test passed
+2026-09-14 — dashboard unchanged, as a review slice should leave it.

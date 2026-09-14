@@ -5,22 +5,24 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e — ~375 unreviewed app lines (ca1 53; ca2 0, tool-only; ca3 ~320). ca3a reviews these.
+**Last reviewed commit:** CA3A_SHA — 0 unreviewed app lines.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
-- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
-  12 empty placeholders dropped, nothing lost, no Temp invented. Sheet ID deliberately not in the repo.
+- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg, never in the repo). Verified 2026-09-13: 177 rows →
+  165, 12 empty placeholders dropped, nothing lost, no Temp invented.
 - **ca3** — proxy live, verified headless + live 2026-09-13: both roles read, three bad-token paths rejected, new
   sheet private, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov days 16/18/23/31/23, cycle day 31.
   Mike's four live checks pass; old sheet Restricted and confirmed refused 2026-09-13. `deploy.bat` was also
   silently skipping the push — fixed, it now always pushes.
+- **ca3a** — review of `1065c1e..HEAD`. Fixed: `hasData` blind to ca2's new columns; adapter read `Cycle Start`/
+  `Ovulation` as strict `=== 'TRUE'`, ignoring others silently (now a warning `flag()`); dead `Time` column;
+  `Code.gs` opened the sheet twice. 8 findings pushed on. `adapter-selfcheck` PASS; live 2026-09-14.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **ca3a checkpoint review is due before ca4** — ca3 touched a shared helper (the adapter) and an invariant
-  (`Exclude`). Marker stays at 1065c1e until ca3a advances it.
+- **`verify-proxy.js` not re-run since ca3a touched the adapter.** Needs the live `/exec` URL + both tokens — Mike.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_

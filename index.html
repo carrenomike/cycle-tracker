@@ -265,8 +265,13 @@ function splitCycles(rows) {
   return cycles;
 }
 
+// Every column a logged day can carry. A row that has none of them is empty.
+// ca2's columns are listed too — without them a spotting-only or
+// cervix-position-only day (which ca5 can write) would read as an empty row.
 function hasData(r) {
-  return r.Temp || r['Cervix Texture'] || r['Cervical Mucus'] || r.Breasts || r.Cycle || r.Note;
+  return r.Temp || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
+         r['Cervical Mucus'] || r['Cervix Position'] || r.Breasts ||
+         r['Cycle Start'] || r.Cycle || r.Note;
 }
 
 function detectPhase(cycle) {
@@ -570,7 +575,7 @@ function render(cycles) {
       <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th>Day</th><th>Date</th><th>Temp</th><th class="hide-sm">Time</th>
+          <th>Day</th><th>Date</th><th>Temp</th>
           <th class="hide-sm">Cervix</th>
           <th class="hide-sm">Mucus</th>
           <th class="hide-sm">Breasts</th>
@@ -794,7 +799,6 @@ function buildLogRows(cycle) {
       <td>${r.Day}</td>
       <td style="white-space:nowrap">${r.Date}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
-      <td class="hide-sm" style="white-space:nowrap">${r.Time || ''}</td>
       <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
       <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
       <td class="hide-sm">${r.Breasts || ''}</td>
@@ -1064,6 +1068,21 @@ function showError(msg) { showMessage('Could not load data.', msg, true); }
 // when it rewrites those call sites against Flow and Ovulation directly.
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// Sheets turns a ticked checkbox into a boolean and the proxy flattens that to
+// 'TRUE'. A value typed by hand is just as deliberate, so accept the obvious
+// spellings — and shout about anything else instead of reading it as blank. A
+// Cycle Start that silently fails to register merges two cycles, which moves
+// the cycle day and therefore the safety window.
+const TRUTHY = new Set(['TRUE', 'YES', 'Y', 'X', '1']);
+
+function flag(v, col, date) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (TRUTHY.has(s.toUpperCase())) return 'TRUE';
+  console.warn(`${date}: ${col} holds "${s}", which is not a yes/no value — treating it as not set.`);
+  return '';
+}
+
 function adaptRows(rows) {
   let cycleStart = null;
   const out = [];
@@ -1072,9 +1091,14 @@ function adaptRows(rows) {
     if (!m) { console.warn('Row with an unreadable Date was skipped:', r.Date); continue; }
     // Local midnight at both ends, so the day difference is exact and immune to DST.
     const d = new Date(+m[1], +m[2] - 1, +m[3]);
-    if (r['Cycle Start'] === 'TRUE') cycleStart = d;
 
     const row = Object.assign({}, r);
+    // Normalise the three yes/no columns here, once, so no downstream reader
+    // has to guess at a spelling.
+    row['Cycle Start'] = flag(r['Cycle Start'], 'Cycle Start', r.Date);
+    row.Ovulation      = flag(r.Ovulation, 'Ovulation', r.Date);
+    row.Exclude        = flag(r.Exclude, 'Exclude', r.Date);
+    if (row['Cycle Start'] === 'TRUE') cycleStart = d;
     row._date = d;
     // Display format matches what the old sheet's formatted cells gave, so no
     // surface Tirzah sees changes in this slice.
@@ -1084,11 +1108,11 @@ function adaptRows(rows) {
     row.Day = cycleStart ? String(Math.round((d - cycleStart) / 86400000) + 1) : '';
     // Spotting is deliberately NOT 'Blood' — the old sheet never counted it as
     // bleeding, and ca4's opening-bleed-run rule depends on that staying true.
-    if (r.Ovulation === 'TRUE' && r.Flow === 'bleeding') {
+    if (row.Ovulation === 'TRUE' && r.Flow === 'bleeding') {
       console.warn(`${r.Date}: marked both Ovulation and bleeding — treating as Ovulation.`);
     }
-    row.Cycle = r.Ovulation === 'TRUE' ? 'Ovulation'
-              : r.Flow === 'bleeding'  ? 'Blood'
+    row.Cycle = row.Ovulation === 'TRUE' ? 'Ovulation'
+              : r.Flow === 'bleeding'    ? 'Blood'
               : '';
     out.push(row);
   }

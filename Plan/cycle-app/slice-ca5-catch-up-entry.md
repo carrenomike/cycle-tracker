@@ -68,3 +68,14 @@ backdated entry immediately moves a verdict that is already correct.)
 - **Live test is Mike's**, on his phone: log a day, log three backdated days in one sitting, confirm the dashboard
   updates, and confirm a deliberately broken write shows an error rather than appearing to succeed.
 - **Live test on Tirzah's phone:** the reader build shows no tab bar and no route to the Log tab.
+
+## Added by ca3a (2026-09-13)
+
+- **The log table does not show four of the columns this slice writes.** It has Day, Date, Temp, Cervix Texture,
+  Cervical Mucus, Breasts, Phase and Note — no `Flow`, `Temp Quality`, `Cervix Position` or `Exclude`. A day logged
+  as spotting-only, or a reading marked off-time and excluded, will be invisible in the table it was just entered
+  into. Add the columns here, or the entry screen will look like it silently dropped the value.
+- ca3a removed the table's `Time` column: the ca2 schema has no `Time`, so it rendered blank on every row.
+- `adaptRows`' `flag()` helper is the single place yes/no columns are read. Anything this slice writes to
+  `Cycle Start`, `Ovulation` or `Exclude` should be the literal `TRUE`, matching what a ticked Sheets checkbox
+  flattens to through the proxy.

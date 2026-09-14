@@ -35,7 +35,8 @@ function doGet(e) {
   }
 
   try {
-    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
+    const ss    = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAME);
     if (!sheet) return reply(p.callback, { ok: false, error: 'sheet-missing: ' + SHEET_NAME });
 
     const values = sheet.getDataRange().getValues();
@@ -43,7 +44,7 @@ function doGet(e) {
     const dateAt = cols.indexOf('Date');
     if (dateAt < 0) return reply(p.callback, { ok: false, error: 'sheet-missing-Date-column' });
 
-    const tz = Spreadsheet_tz();
+    const tz = ss.getSpreadsheetTimeZone() || 'Etc/GMT';
     const rows = values
       .filter(row => row[dateAt] !== '' && row[dateAt] !== null)
       .map(row => row.map(v => cell(v, tz)));
@@ -55,10 +56,6 @@ function doGet(e) {
     console.error(err);
     return reply(p.callback, { ok: false, error: 'read-failed: ' + err.message });
   }
-}
-
-function Spreadsheet_tz() {
-  return SpreadsheetApp.openById(SHEET_ID).getSpreadsheetTimeZone() || 'Etc/GMT';
 }
 
 /**

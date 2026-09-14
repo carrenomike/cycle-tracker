@@ -50,3 +50,12 @@ a stale-cache problem shows up sooner.
   quota error take the token with it.
 - **Google's `/exec` redirect intermittently 404s.** A single failed read is not evidence the data is stale, so
   the staleness banner must be driven by the age of the last *successful* read, never by one failed fetch.
+
+## Added by ca3a (2026-09-13)
+
+- **A row with an unreadable `Date` is dropped with nothing but a `console.warn`.** `adaptRows` skips it, and on a
+  phone nobody will ever see that warning. If the dropped row carried the `Cycle Start` flag, two cycles merge,
+  the cycle day jumps and the safety verdict moves — silently. Same for `flag()`'s "not a yes/no value" warning.
+  This slice owns the banner mechanism, so surface both there: a quiet line naming the offending date, using the
+  existing failure vocabulary, not a second one. Do **not** blank the dashboard for it — the rest of the data is
+  still good.

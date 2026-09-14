@@ -105,3 +105,20 @@ that trail the end of cycles 3 and 4.
   and today's cycle day matches the hand-count.
 - **Live test is Mike's**, on his phone: confirm the Safe/Unsafe verdict and its hint text, confirm the phase card
   never reads "Ovulation", and confirm the unlogged counter appears after a skipped day.
+
+## Added by ca3a (2026-09-13)
+
+- **The pre-ovulation "Safe" branch is effectively dead code.** `isSafe` opens a safe window for
+  `dayNumber < ovDay - 6`, but `ovDay` only exists once the marker has been placed, which is only ever after
+  ovulation has passed — so the condition can never be true on a live cycle. It is harmless (it fails closed) but
+  it makes the current rule look like it has a pre-ovulation window when it does not. Decide explicitly in this
+  slice whether an early-cycle window exists at all; do not carry the branch over unexamined.
+- **`Exclude` only reaches the coverline.** `calcCoverline` skips excluded temps, but an excluded reading still
+  plots on both charts and can still be the "Last Temp" card and the above/below-coverline verdict. That was also
+  true before ca3, so it is not a regression — but this slice owns the temperature rules and should settle it.
+- **`hasData` will likely have no reason to exist after this slice.** ca2 drops every contentless row and
+  `loadData` already filters to rows with a numeric `Day`, so the blank-future-row problem it was written for is
+  gone. ca3a made it schema-complete rather than delete it, because three call sites and the log table's
+  `row-empty` class still read it. Delete it here if the rewritten readers no longer need it.
+- **The adapter's `Cycle` half comes out in this slice.** `flag()` and the `Cycle Start` / `Ovulation` / `Exclude`
+  normalisation must stay — only the `row.Cycle` synthesis is ca3 scaffolding.
