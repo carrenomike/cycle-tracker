@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e — 53 unreviewed app lines (ca1: 53; ca2: 0, tool-only). Checkpoint at ~1,500.
+**Last reviewed commit:** 1065c1e — ~240 unreviewed app lines (ca1: 53; ca2: 0, tool-only; ca3: ~190). Checkpoint at ~1,500.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -13,10 +13,16 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
   12 empty placeholders dropped, nothing lost, no Temp invented. New sheet created and pasted by Mike 2026-09-13;
   its ID is deliberately not in the repo. App untouched, still on the old sheet — ca3 switches it.
+- **ca3** — code landed, **not verified**: `Apps Script/Code.gs`, token bootstrap + row adapter in `index.html`,
+  `manifest.json`, two tools. Deploying needs Mike in a browser — follow `Apps Script/SETUP.md` start to finish.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- _(none — ca2's four all moved into the ca3/ca4/ca5 slice files, 2026-09-13.)_
+- **ca3 is not finished.** `PROXY_URL` in `index.html` is empty and the Apps Script is undeployed, so the app
+  loads nothing. `Tools/verify-proxy.js` has not been run: the ca2 paste is still unread programmatically and
+  ca3's exit criteria are unmet. The old sheet is still public — SETUP.md step 7 revokes it, last, not first.
+- ca4 deletes the adapter's `Cycle` half (`index.html`, `>>> ADAPTER` markers) as it rewrites those call sites
+  against `Flow`/`Ovulation`. The `Day` half stays.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_

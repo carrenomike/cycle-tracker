@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cycle Dashboard</title>
+<meta name="theme-color" content="#4a148c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -240,11 +243,8 @@ tfoot td {
 </main>
 
 <script>
-const SHEET_ID = '1F3Wym_3tzcjF7rurMvI-mb1uv0jz9XcwAYaOacvJHWA';
-
 let timelineChart   = null;
 let overlayChart    = null;
-let _scriptEl       = null;
 let allCycles        = null;
 let overlayShowFull  = false;
 let selectedLogCycle = null;
@@ -346,7 +346,7 @@ function calcCoverline(cycle) {
   // by earlier days, then keep the most recent 6 valid readings.
   const preTemps = cycle
     .slice(0, ovIdx)
-    .filter(r => r.Temp && (r.Exclude || '').trim().toUpperCase() !== 'Y')
+    .filter(r => r.Temp && !(r.Exclude || '').trim())
     .slice(-6)
     .map(r => parseFloat(r.Temp));
   if (!preTemps.length) return null;
@@ -995,56 +995,160 @@ function drawOverlayChart(cycles) {
   }
 }
 
+
 // ── Data load ──────────────────────────────────────────────────────────────
 
-function showError(msg) {
+// The sheet is private. All reads go through an Apps Script web app that
+// checks a token before it touches the sheet. Paste the /exec URL of your
+// deployment here — see Apps Script/SETUP.md.
+const PROXY_URL = '';
+
+const TOKEN_KEY = 'cycleToken';
+
+// The token arrives once, in the URL fragment (#t=...). Text after "#" is
+// never sent to any server, so it stays out of logs and out of Referer
+// headers. Store it, then scrub the address bar so a screenshot or a shared
+// link does not leak it.
+function bootstrapToken() {
+  let token = '';
+  const m = /[#&]t=([^&]*)/.exec(location.hash);
+  if (m) {
+    token = decodeURIComponent(m[1]).trim();
+    try {
+      localStorage.setItem(TOKEN_KEY, token);
+    } catch (e) {
+      // Private mode, or storage blocked. This session still works; the next
+      // one will not, and the user needs to know that rather than be puzzled.
+      console.error('Could not save the access token:', e);
+      alert('Your access link worked, but this browser would not save it. ' +
+            'It will ask for the link again next time you open the app.');
+    }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  if (!token) {
+    try { token = localStorage.getItem(TOKEN_KEY) || ''; }
+    catch (e) { console.error('Could not read the saved access token:', e); }
+  }
+  // Ask Chrome not to evict the token under storage pressure. Advisory only,
+  // and only meaningful once we actually have something worth keeping.
+  if (token && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist()
+      .then(ok => { if (!ok) console.warn('Storage is not persistent — the token may be evicted.'); })
+      .catch(e => console.warn('storage.persist() failed:', e));
+  }
+  return token;
+}
+
+const TOKEN = bootstrapToken();
+
+function showMessage(msg, detail, canRetry) {
+  const esc = s => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   document.getElementById('app').innerHTML = `
     <div class="spinner">
-      Could not load data.<br>
-      <small>${msg}</small><br>
-      <button onclick="loadData()">Retry</button>
+      ${esc(msg)}<br>
+      ${detail ? `<small>${esc(detail)}</small><br>` : ''}
+      ${canRetry ? '<button onclick="loadData()">Retry</button>' : ''}
     </div>`;
 }
 
-function loadData() {
-  // Remove any previously injected script tag
-  if (_scriptEl && _scriptEl.parentNode) _scriptEl.parentNode.removeChild(_scriptEl);
+function showError(msg) { showMessage('Could not load data.', msg, true); }
 
-  // Google Visualization API supports JSONP — works from file:// and any origin
+// >>> ADAPTER — extracted and executed verbatim by Tools/verify-proxy.js, which
+// matches on these two marker lines. Keep them, and keep this block free of
+// anything that only exists in a browser.
+//
+// The new sheet has no Day and no Cycle column; ca2 replaced them with a Date,
+// a Cycle Start flag, Flow and Ovulation. Rather than rewrite the twenty-odd
+// places downstream that read Day and Cycle, synthesise both here, at the parse
+// boundary, so this slice stays a transport change. ca4 deletes the Cycle half
+// when it rewrites those call sites against Flow and Ovulation directly.
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function adaptRows(rows) {
+  let cycleStart = null;
+  const out = [];
+  for (const r of rows) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(r.Date || '').trim());
+    if (!m) { console.warn('Row with an unreadable Date was skipped:', r.Date); continue; }
+    // Local midnight at both ends, so the day difference is exact and immune to DST.
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (r['Cycle Start'] === 'TRUE') cycleStart = d;
+
+    const row = Object.assign({}, r);
+    row._date = d;
+    // Display format matches what the old sheet's formatted cells gave, so no
+    // surface Tirzah sees changes in this slice.
+    row.Date = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    // Rows before the first Cycle Start get no day number and are filtered out
+    // below, exactly as unnumbered rows were before.
+    row.Day = cycleStart ? String(Math.round((d - cycleStart) / 86400000) + 1) : '';
+    // Spotting is deliberately NOT 'Blood' — the old sheet never counted it as
+    // bleeding, and ca4's opening-bleed-run rule depends on that staying true.
+    if (r.Ovulation === 'TRUE' && r.Flow === 'bleeding') {
+      console.warn(`${r.Date}: marked both Ovulation and bleeding — treating as Ovulation.`);
+    }
+    row.Cycle = r.Ovulation === 'TRUE' ? 'Ovulation'
+              : r.Flow === 'bleeding'  ? 'Blood'
+              : '';
+    out.push(row);
+  }
+  return out;
+}
+// <<< ADAPTER
+
+let _scriptEl = null;
+let _loadTimer = null;
+
+function loadData() {
+  if (!PROXY_URL) {
+    return showMessage('This app is not finished being set up.',
+      'No data source is configured yet.', false);
+  }
+  if (!TOKEN) {
+    return showMessage('No access.',
+      'This app needs a personal link to open. Ask Mike to send you yours.', false);
+  }
+
+  if (_scriptEl && _scriptEl.parentNode) _scriptEl.parentNode.removeChild(_scriptEl);
+  clearTimeout(_loadTimer);
+
+  const done = () => { clearTimeout(_loadTimer); window._sheetCallback = () => {}; };
+
   window._sheetCallback = function(resp) {
+    done();
     try {
-      const cols = resp.table.cols.map(c => c.label);
-      const rows = resp.table.rows.map(row => {
+      if (!resp || resp.ok !== true) {
+        const err = resp && resp.error;
+        if (err === 'no-access') {
+          return showMessage('No access.',
+            'This link is not valid any more. Ask Mike for a new one.', false);
+        }
+        throw new Error(err || 'The server sent a response this app could not read');
+      }
+      const rows = resp.rows.map(cells => {
         const obj = {};
-        (row.c || []).forEach((cell, i) => {
-          // cell can be null (empty) or {v, f} — prefer formatted string f over raw v
-          obj[cols[i]] = (cell && cell.v !== null && cell.v !== undefined)
-            ? String(cell.f !== undefined && cell.f !== null ? cell.f : cell.v)
-            : '';
-          // The Date column is a true date cell, so the raw value carries the
-          // year ("Date(2026,2,25)") even though the formatted string drops it.
-          // Keep the real date alongside the display string so date math never
-          // has to guess which year a "Mar 25" belongs to.
-          if (cols[i] === 'Date' && cell && typeof cell.v === 'string') {
-            const m = /^Date\((\d+),(\d+),(\d+)/.exec(cell.v);
-            if (m) obj._date = new Date(+m[1], +m[2], +m[3]);
-            else console.warn('Could not parse Date cell:', cell.v);
-          }
-        });
+        resp.cols.forEach((c, i) => { obj[c] = cells[i] == null ? '' : String(cells[i]); });
         return obj;
       });
-      const filtered = rows.filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
+      const filtered = adaptRows(rows).filter(r => r.Day && /^\d+$/.test(r.Day.trim()));
       const cycles   = splitCycles(filtered);
       if (cycles.length === 0) throw new Error('No cycle data found in sheet');
       render(cycles);
     } catch (e) {
+      console.error(e);
       showError(e.message);
     }
   };
 
   _scriptEl = document.createElement('script');
-  _scriptEl.onerror = () => showError('Could not reach Google Sheets — check your internet connection');
-  _scriptEl.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:_sheetCallback`;
+  _scriptEl.onerror = () => { done(); showError('Could not reach the server — check your internet connection'); };
+  _scriptEl.src = `${PROXY_URL}?t=${encodeURIComponent(TOKEN)}&callback=_sheetCallback`;
+  // JSONP reports nothing when a request simply never comes back. Without this
+  // the app sits on the spinner forever and nobody is told anything.
+  _loadTimer = setTimeout(() => {
+    done();
+    showError('The server did not respond. It may be over its daily quota — try again later.');
+  }, 20000);
   document.head.appendChild(_scriptEl);
 }
 

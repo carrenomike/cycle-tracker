@@ -133,3 +133,54 @@ deviation because ca4's safety engine plans around the marker count.
 recorded here or anywhere else in the repo — ca3 decides where it lives, which will be the Apps Script, not
 source. The app was not switched over and still reads the old sheet, exactly as ca2 requires. Nobody has yet read
 the new sheet programmatically; ca3's first successful read is the real proof the paste is intact.
+
+---
+
+## ca3 — Apps Script proxy, two tokens, private sheet (2026-09-13)
+
+**Shape of the change.** `Apps Script/Code.gs` is a `doGet` that compares `?t=` against a reader and a writer
+token *before* it opens the sheet, then returns the rows as JSON, or as JSONP when a `callback` is asked for.
+JSONP because the app must keep working from `file://` as well as GitHub Pages, and because it is the transport
+the app already used against gviz — the smallest change that keeps both. Read only; there is no `doPost`, by
+design, until ca5. The sheet ID and both tokens live in that file, which lives in the Apps Script editor; the copy
+in this repo has them blanked, and `Apps Script/SETUP.md` is the by-hand sequence.
+
+**The adapter.** The new sheet has no `Day` and no `Cycle`, and the app reads those two in about twenty places.
+Rather than twenty edits in a transport slice, one adapter at the parse boundary (`index.html`, between the
+`>>> ADAPTER` / `<<< ADAPTER` markers) synthesises both onto each row: `Day` by date arithmetic from the nearest
+preceding `Cycle Start`, `Cycle` as `Ovulation` or `Blood` from the `Ovulation` and `Flow` columns. It also
+restores the old display format for `Date` ("Mar 25" rather than "2026-03-25"), so no surface Tirzah sees changes
+in this slice. Spotting is deliberately not `Blood`. A row marked both ovulation and bleeding resolves to
+ovulation and logs a warning — dropping the manual marker silently would be the worse failure. ca4 deletes the
+`Cycle` half of this when it rewrites those call sites against `Flow` and `Ovulation` directly.
+
+**Found in passing — a real regression the slice spec did not list.** `calcCoverline` filtered excluded rows with
+`Exclude.toUpperCase() !== 'Y'`, but ca2 writes `TRUE`, not `Y`. Switching transports would have silently pulled
+excluded temperatures back into every coverline. Fixed at the call site rather than papered over in the adapter:
+any non-empty `Exclude` now means excluded, which is true of both the old `Y` and the new `TRUE`. Grepped for
+sibling cases of the same root cause — an enum whose spelling ca2 changed being compared to a literal — and
+`Exclude` was the only one; `Day`, `Cycle`, `Flow` and `Ovulation` are all handled by the adapter.
+
+**Failure paths, all visible.** No token, an unknown token, a revoked token, no `PROXY_URL` configured, a
+network error, a sheet that will not open, a malformed response, and a request that simply never comes back
+(a 20-second timeout, because JSONP reports nothing at all when that happens) each render their own message.
+None of them retries silently and none leaves the spinner spinning.
+
+**Token delivery.** `#t=...` on first open. The fragment never leaves the browser, so it stays out of server logs
+and `Referer` headers. The app stores it, calls `navigator.storage.persist()`, and immediately rewrites the
+address bar without it. If `localStorage` refuses the write the session still works and the user is told plainly,
+rather than silently losing access at the next restart. `manifest.json` and `icon.svg` make Add to Home Screen
+install cleanly; on Chrome/Android that is convenience, not load-bearing.
+
+**Verification.** `Tools/adapter-selfcheck.js` runs offline and passes: gap days, a row before the first Cycle
+Start, an unreadable date, spotting-is-not-blood, and a cycle spanning the 2026-11-01 DST change all come out
+right. `Tools/verify-proxy.js` covers the rest of the exit criteria against the live deployment — the rejection
+paths, both roles, that the new sheet refuses a logged-out fetch, that the ca2 paste is intact at 165 rows
+2026-03-25..2026-09-11, and that the adapted rows still give 5 cycles, the five Day-1 dates and ovulation on days
+16/18/23/31/23. Both tools extract the adapter out of `index.html` instead of copying it, so neither can drift
+from what actually ships.
+
+**Blocked.** The proxy cannot be deployed from here — it needs Mike in a browser, and both tokens and the new
+sheet ID are deliberately absent from this repo. `verify-proxy.js` has therefore not been run, so the ca2 paste
+is *still* unread programmatically and the exit criteria are not yet met. The old sheet is still public and must
+stay that way until the proxy is confirmed; step 7 of `SETUP.md` is the last thing to happen, not the first.
