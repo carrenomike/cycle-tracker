@@ -129,5 +129,7 @@ source. 177 rows in, 165 out. Five Cycle Starts, five ovulation markers, 159 tem
 the ca2 spec state that cycle 5 has none — Tirzah marked it some time after 2026-08-26. Recorded as an open
 deviation because ca4's safety engine plans around the marker count.
 
-**Not done in this slice:** the new sheet does not exist yet and nothing has been pasted. The app is untouched and
-still reads the old sheet, exactly as ca2 requires.
+**Handover.** Mike created the new sheet and pasted the 165 rows on 2026-09-13. Its ID is deliberately not
+recorded here or anywhere else in the repo — ca3 decides where it lives, which will be the Apps Script, not
+source. The app was not switched over and still reads the old sheet, exactly as ca2 requires. Nobody has yet read
+the new sheet programmatically; ca3's first successful read is the real proof the paste is intact.

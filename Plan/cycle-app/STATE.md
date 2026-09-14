@@ -11,8 +11,8 @@ at session start; the README isn't — this line is the only way a session learn
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, verified headless 2026-08-26. Awaiting Mike's live test.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
-  12 empty placeholders dropped, nothing lost, no Temp invented. **TSV handed over; sheet not yet created, nothing
-  pasted.** App untouched, still on the old sheet.
+  12 empty placeholders dropped, nothing lost, no Temp invented. New sheet created and pasted by Mike 2026-09-13;
+  its ID is deliberately not in the repo. App untouched, still on the old sheet — ca3 switches it.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
