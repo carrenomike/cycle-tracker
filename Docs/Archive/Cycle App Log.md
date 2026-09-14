@@ -408,3 +408,47 @@ recording, because all three are repeatable:
 The one code change to come out of this: `doGet` reports `not-configured` before `no-access`. Saying "this
 deployment is not set up" leaks nothing and is the difference between a five-minute fix and an hour of hunting a
 token that was never wrong.
+
+### ca3b live deployment — the evening the app would not load (2026-09-14)
+
+The code work of ca3b was committed and correct. Getting it *live* cost four separate traps, three of them in the
+Apps Script deploy flow and one in the browser. All four are now guarded somewhere runnable; none of them were
+visible from the repo.
+
+**Trap 1 — saving the editor deploys nothing.** `verify-proxy` reported `sheet timezone is undefined`. An *absent*
+`tz` key means old code is still serving; the new code with a bad timezone would have reported `"Etc/GMT"`. The
+distinction is what made the diagnosis fast, and it is why the assertion checks for the key's presence rather than
+its plausibility. Fix: Deploy → Manage deployments → edit → New version.
+
+**Trap 2 — the paste wiped the secrets.** Both valid tokens came back `{"ok":false,"error":"no-access"}`. The
+repo's `Code.gs` is a template with `SHEET_ID`, `READER_TOKEN` and `WRITER_TOKEN` blanked, so pasting it over the
+editor blanks the live ones — and with blank tokens *every* request fails the role check, which reports a token
+problem that does not exist. Fixed in code: `not-configured` is now checked **before** the token check
+(`d9d5eca`), `verify-proxy` names the cause by name, and `Apps Script/SETUP.md` warns that re-entering the three
+secrets is part of every paste.
+
+**Trap 3 — "New deployment" is not "New version".** `read-failed: Illegal spreadsheet id or key:
+d/1yXLmWP…` looked like a pasted URL slice, and Mike correctly pushed back that it was not. The tell was in the
+error report itself: the `/exec` URL had *changed* between runs (`AKfycbyV6…` → `AKfycbxm…`). He had created a new
+deployment rather than a new version of the existing one, and a deployment snapshots the last **saved** editor
+state — so the half-finished edit went live. The knock-on: `index.html` was still pointing at the older
+deployment, which was still happily serving valid tokens, so nothing looked broken. `24f6067` moved `PROXY_URL` to
+the verified deployment.
+
+**Trap 4 — the app would not load, and the error message lied.** With the proxy verified healthy (Mike's
+address-bar fetch returned `ok:true`, `tz:"America/Los_Angeles"`, all 13 columns, 165 rows, times reading
+`6:32 AM`) and the push confirmed landed, the phone still showed *"server did not respond — it may be over its
+daily quota"*. That is the 20s `_loadTimer` in `loadData()`, not a quota. Root cause: a cached `index.html` still
+pointing at the by-then-archived deployment. An archived `/exec` returns Google's **HTML error page with HTTP
+200**, so the `<script>` tag loads successfully, `onerror` never fires, the page simply fails to parse as JS,
+`_sheetCallback` never runs, and the only signal left is the timeout. A private-tab load confirmed it — the app
+came up immediately. `?v=2` had not helped because `manifest.json` declares `"start_url": "."` with
+`"display": "standalone"`: the home-screen icon opens its own cached entry point and never sees a typed query.
+
+Both of trap 4's underlying defects — a message asserting a cause it cannot know, and a `PROXY_URL` change able to
+strand every cached viewer — are pushed onto `slice-ca7-viewer-staleness.md`, which owns the cache. **ca7 is
+pulled forward ahead of ca4** under the clause in its own Dependencies section.
+
+The lesson worth keeping: *the honest failure and the dishonest one look identical on the phone.* A timeout knows
+only that nothing came back. Naming a cause it has not observed does not help the user and actively misdirects the
+person debugging it.

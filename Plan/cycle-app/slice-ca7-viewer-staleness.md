@@ -59,3 +59,24 @@ a stale-cache problem shows up sooner.
   This slice owns the banner mechanism, so surface both there: a quiet line naming the offending date, using the
   existing failure vocabulary, not a second one. Do **not** blank the dashboard for it — the rest of the data is
   still good.
+
+## Added by ca3b (2026-09-14) — pulled forward, both items are this slice's
+
+The ca3b redeploy stranded the app for an evening on a purely client-side cache problem. This is exactly the
+"stale-cache problem shows up sooner" case the Dependencies section allows, so ca7 now runs before ca4.
+
+- **`loadData()`'s timeout message asserts a cause it does not know.** `index.html:1178` says *"It may be over its
+  daily quota — try again later"* when all the code knows is that no reply arrived in 20s. On 2026-09-14 the real
+  cause was a cached page pointing at an archived `/exec`, and the message sent Mike hunting a quota that was fine.
+  Say what is true — no reply in 20s — and keep the quota wording for the response that actually reports it. This
+  is the existing failure vocabulary being made honest, not a new one.
+- **An archived `/exec` fails silently and cannot be distinguished from a dead network.** Google serves an HTML
+  error page with HTTP 200, so the `<script>` tag "loads", `onerror` never fires, `_sheetCallback` never runs, and
+  the only signal is the 20s timeout. Any future `PROXY_URL` change strands every viewer holding a cached page.
+  This slice owns the cache, so it owns the fix: bust the cache on a `PROXY_URL` change so a redeploy cannot leave
+  a viewer talking to a URL that no longer exists.
+- **`manifest.json` declares `"start_url": "."` with `"display": "standalone"`.** An installed home-screen icon
+  therefore opens its own cached entry point, and a `?v=` query typed into the address bar does not reach it. Any
+  cache-busting this slice adds must work from inside the page, not from the URL.
+- There is **no service worker** anywhere in `index.html` — the manifest is the only PWA machinery. Do not add one
+  to solve this; a service worker is a second, harder-to-clear cache on top of the one causing the problem.

@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** d9d5eca — 0 unreviewed app lines. Next checkpoint review is ca8.
+**Last reviewed commit:** 24f6067 — 0 unreviewed app lines. Next checkpoint review is ca8.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -25,7 +25,7 @@ _(One line per slice. Detail lives in the archive log.)_
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- _(none)_
+- **ca7 runs before ca4** — a stale cached page stranded the app 2026-09-14; ca7 owns the cache and the fix.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
