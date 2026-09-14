@@ -14,12 +14,11 @@ _(One line per slice. Detail lives in the archive log.)_
   12 empty placeholders dropped, nothing lost, no Temp invented. Sheet ID deliberately not in the repo.
 - **ca3** — proxy live, verified headless + live 2026-09-13: both roles read, three bad-token paths rejected, new
   sheet private, ca2 paste intact (165 rows, 2026-03-25..09-11), 5 cycles, ov days 16/18/23/31/23, cycle day 31.
-  Mike's four live checks pass. `deploy.bat` was also silently skipping the push — fixed, it now always pushes.
+  Mike's four live checks pass; old sheet Restricted and confirmed refused 2026-09-13. `deploy.bat` was also
+  silently skipping the push — fixed, it now always pushes.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **The old sheet may still be public — UNCONFIRMED.** SETUP.md step 10. Public since the first commit, so until
-  it is Restricted the whole history is readable and ca3's privacy goal is not met. ca3a re-checks this first.
 - **ca3a checkpoint review is due before ca4** — ca3 touched a shared helper (the adapter) and an invariant
   (`Exclude`). Marker stays at 1065c1e until ca3a advances it.
 

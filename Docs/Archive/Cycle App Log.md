@@ -220,3 +220,8 @@ advances it.
 
 **Still open at handover:** whether the old sheet's public access has actually been revoked. It has been readable
 by anyone holding the link since the first commit. ca3a re-checks it before anything else.
+
+**Old sheet revoked and confirmed 2026-09-13.** Mike set the original sheet's General access to Restricted. Checked
+anonymously against all three read routes — the `gviz` feed, the CSV export and the normal edit view — and each
+returns HTTP 401. The sheet ID has been public in this repo since the first commit and is now inert. The sheet
+itself is kept, private, as the keepsake. **ca3 is complete: every exit criterion is met.**

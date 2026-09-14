@@ -30,11 +30,6 @@ script that has already done its one job.
   valid JSON or valid JSONP.
 - **Failure paths.** Every one is supposed to be visible. Walk them rather than trusting the claim.
 
-## Known-open at entry
-
-- Confirm the old sheet's public access was actually revoked (`Apps Script/SETUP.md` step 10). It has been public
-  since the first commit; if it is still readable, ca3's privacy goal is not met no matter what the new sheet does.
-
 ## Exit criteria
 
 - No typecheck, test or build exists in this project. Headless checks only, stated in the STATE line.
