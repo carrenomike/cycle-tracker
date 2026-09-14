@@ -269,10 +269,13 @@ function splitCycles(rows) {
 // ca2's columns are listed too — without them a spotting-only or
 // cervix-position-only day (which ca5 can write) would read as an empty row.
 // Keep this list complete: a column missing from it makes real days look blank.
+// Tools/adapter-selfcheck.js asserts it covers every column the sheet carries.
+// Ovulation is listed in its own right, not left to the synthesised r.Cycle —
+// ca4 deletes that synthesis, and it must not take a column with it.
 function hasData(r) {
   return r.Temp || r.Time || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
          r['Cervical Mucus'] || r['Cervix Position'] || r.Breasts ||
-         r['Cycle Start'] || r.Cycle || r.Note;
+         r['Cycle Start'] || r.Ovulation || r.Cycle || r.Note;
 }
 
 function detectPhase(cycle) {

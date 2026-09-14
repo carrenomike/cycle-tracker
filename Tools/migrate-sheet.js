@@ -17,17 +17,28 @@
 const NEW_COLS = ['Date', 'Cycle Start', 'Temp', 'Time', 'Temp Quality', 'Exclude', 'Flow',
   'Cervical Mucus', 'Cervix Texture', 'Cervix Position', 'Breasts', 'Ovulation', 'Note'];
 
-// Every column this migration knows how to handle. It is an allowlist on purpose,
-// but an allowlist with nothing watching the other side of it is how the original
-// run lost `Time`: the column simply had no destination and no check could see a
-// column that was never mentioned. verify() now refuses to write unless every
-// column the source actually carries appears here, so the next unlisted column
-// stops the migration instead of disappearing from it.
-const SOURCE_COLS = new Set([
-  'Day',            // -> not stored; the app derives it from Cycle Start
-  'Date', 'Temp', 'Time', 'Cervix Texture', 'Cervical Mucus', 'Breasts',
-  'Exclude', 'Cycle', 'Note',
-]);
+// Every column this migration knows how to handle, mapped to where it lands.
+// An allowlist with nothing watching the other side of it is how the original
+// run lost `Time`: the column had no destination and no check could see a column
+// that was never mentioned. So this is a map, not a set, and verify() checks
+// both halves — a source column missing from here stops the migration, and a
+// source column listed here that carries values but whose destination came out
+// empty stops it too. Adding a name to silence the first check now trips the
+// second unless the data really does arrive somewhere.
+//
+// A column that is deliberately not carried maps to null and must say why.
+const SOURCE_COLS = {
+  Day: 'Cycle Start',   // the day number itself is derived; only Day 1 is stored
+  Date: 'Date',
+  Temp: 'Temp',
+  Time: 'Time',
+  'Cervix Texture': 'Cervix Texture',
+  'Cervical Mucus': 'Cervical Mucus',
+  Breasts: 'Breasts',
+  Exclude: 'Exclude',
+  Cycle: 'Flow',        // also feeds Ovulation; Flow is enough to prove it landed
+  Note: 'Note',
+};
 
 // Free text seen in the source -> new enum. Anything absent here is reported as
 // an outlier and left blank rather than guessed at.
@@ -220,10 +231,23 @@ function verify(src, out) {
   // source column has a destination at all.
   const seen = new Set();
   src.forEach(r => Object.keys(r).forEach(k => { if (k !== '_date') seen.add(k); }));
-  const unmapped = [...seen].filter(c => c && !SOURCE_COLS.has(c));
+  const unmapped = [...seen].filter(c => c && !(c in SOURCE_COLS));
   if (unmapped.length) {
     fails.push(`source columns this migration does not handle: ${unmapped.join(', ')} ` +
-      `— add each to SOURCE_COLS and give it a destination, or state in SOURCE_COLS why it is dropped`);
+      `— add each to SOURCE_COLS and give it a destination, or map it to null and say why`);
+  }
+
+  // The other half of the gate. Listing a column above is not the same as
+  // carrying it: `Time` would have been listed and still arrived nowhere. If a
+  // source column holds a value on any row, its destination must hold one too.
+  const filled = c => srcDated.some(r => String(r[c] == null ? '' : r[c]).trim() !== '');
+  for (const [srcCol, dest] of Object.entries(SOURCE_COLS)) {
+    if (dest === null) continue;
+    if (!NEW_COLS.includes(dest)) {
+      fails.push(`SOURCE_COLS maps ${srcCol} to "${dest}", which is not a column of the new sheet`);
+    } else if (seen.has(srcCol) && filled(srcCol) && !out.some(r => String(r[dest]).trim() !== '')) {
+      fails.push(`source column ${srcCol} carries values but its destination ${dest} came out empty on every row`);
+    }
   }
 
   const srcTimes = srcDated.filter(r => fmtTime(r.Time)).map(r => `${fmtDate(r._date)}=${fmtTime(r.Time)}`).sort();

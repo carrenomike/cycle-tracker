@@ -52,4 +52,19 @@ if (JSON.stringify(got) !== JSON.stringify(want)) {
   console.error(`\nFAIL\n  want ${JSON.stringify(want)}\n  got  ${JSON.stringify(got)}`);
   process.exit(1);
 }
+// hasData() is the third independent list of "what a logged day can hold",
+// after NEW_COLS in the migration and the placeholder test inside it. Nothing
+// binds them, and a column missing from hasData makes real days render blank
+// and drop out of detectPhase. So bind them here: every column of the new
+// sheet except Date must be named in hasData's body.
+const { NEW_COLS } = require('./migrate-sheet.js');
+const hasDataBody = /function hasData\(r\) \{([\s\S]*?)\n\}/.exec(src);
+if (!hasDataBody) { console.error('\nFAIL  could not find hasData() in index.html'); process.exit(1); }
+const missing = NEW_COLS.filter(c => c !== 'Date' && !hasDataBody[1].includes(c));
+if (missing.length) {
+  console.error(`\nFAIL  hasData() does not count: ${missing.join(', ')} — those days would render as empty`);
+  process.exit(1);
+}
+console.log(`hasData covers all ${NEW_COLS.length - 1} loggable columns`);
+
 console.log('\nadapter self-check: PASS');

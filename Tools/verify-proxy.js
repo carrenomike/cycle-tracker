@@ -17,16 +17,24 @@ const path = require('path');
 const INDEX = path.join(__dirname, '..', 'index.html');
 
 // Expected shape of the migrated sheet (Plan/cycle-app/slice-ca3-*.md).
+//
+// These are what the ca2 paste put in the sheet, and the sheet only ever grows
+// from here: ca5 appends a row per logged day. So the counts and the last date
+// are FLOORS, not equalities — an equality would start failing on Mike's first
+// new entry and there is no worse failure mode for a safety check than one that
+// cries wolf. `first` and the completed-cycle facts stay exact: nothing may
+// rewrite history.
 const EXPECT = {
-  rows: 165,
+  minRows: 165,
   first: '2026-03-25',
-  last: '2026-09-11',
+  notBefore: '2026-09-11',   // the last migrated date; later is fine, earlier is a loss
   day1: ['Mar 25', 'Apr 26', 'May 25', 'Jul 1', 'Aug 14'],
   ovDays: [16, 18, 23, 31, 23],
   // ca2 dropped the source sheet's Time column and nothing noticed for two
-  // slices. Counted straight off the original export: 88 of the 165 rows carry
-  // a time. Asserting the count here means the recovery cannot quietly regress.
-  times: 88,
+  // slices. Counted straight off the original export: 88 of the 165 migrated
+  // rows carry a time. A floor means the recovery cannot quietly regress while
+  // new entries can still add to it.
+  minTimes: 88,
 };
 
 let failed = 0;
@@ -36,6 +44,10 @@ const is = (actual, expected, what) =>
   JSON.stringify(actual) === JSON.stringify(expected)
     ? pass(`${what}: ${JSON.stringify(actual)}`)
     : fail(`${what}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+const atLeast = (actual, floor, what) =>
+  actual >= floor
+    ? pass(`${what}: ${JSON.stringify(actual)} (floor ${JSON.stringify(floor)})`)
+    : fail(`${what}: expected at least ${JSON.stringify(floor)}, got ${JSON.stringify(actual)}`);
 
 function loadAdapter() {
   const src = fs.readFileSync(INDEX, 'utf8');
@@ -139,9 +151,9 @@ function splitCycles(rows) {
     reader.cols.forEach((c, i) => { o[c] = cells[i] == null ? '' : String(cells[i]); });
     return o;
   });
-  is(rows.length, EXPECT.rows, 'row count');
+  atLeast(rows.length, EXPECT.minRows, 'row count');
   is(rows[0].Date, EXPECT.first, 'first date');
-  is(rows[rows.length - 1].Date, EXPECT.last, 'last date');
+  atLeast(rows[rows.length - 1].Date, EXPECT.notBefore, 'last date');
   const dupes = rows.map(r => r.Date).filter((d, i, a) => a.indexOf(d) !== i);
   dupes.length ? fail(`duplicate dates: ${dupes.join(', ')}`) : pass('no duplicate dates');
   const outOfOrder = rows.filter((r, i) => i && r.Date <= rows[i - 1].Date).map(r => r.Date);
@@ -149,7 +161,20 @@ function splitCycles(rows) {
 
   if (!reader.cols.includes('Time')) fail('the sheet has no Time column (ca2a recovery not pasted yet)');
   else {
-    is(rows.filter(r => r.Time).length, EXPECT.times, 'rows carrying a time');
+    atLeast(rows.filter(r => r.Time).length, EXPECT.minTimes, 'rows carrying a time');
+    // A time is rendered through the spreadsheet's timezone on the way out and
+    // was stored through it on the way in, so the round trip only cancels while
+    // the two agree. Code.gs falls back to Etc/GMT if the sheet reports none —
+    // that fallback would shift every time by hours, in silence.
+    reader.tz && reader.tz !== 'Etc/GMT'
+      ? pass(`sheet timezone reported as ${reader.tz}`)
+      : fail(`sheet timezone is ${JSON.stringify(reader.tz)} — times are rendered through it ` +
+             `and a missing one shifts them all (redeploy Code.gs, check File > Settings)`);
+    const oddTimes = rows.filter(r => r.Time && !/^\d{1,2}:\d{2} (AM|PM)$/.test(r.Time))
+                         .map(r => `${r.Date}="${r.Time}"`);
+    oddTimes.length
+      ? fail(`Time is not "h:mm AM" on: ${oddTimes.slice(0, 5).join(', ')}`)
+      : pass('every time reads as h:mm AM/PM');
     // A time that arrives as a date means the proxy formatted a time-of-day cell
     // with the calendar format -- see cell() in Apps Script/Code.gs.
     const asDates = rows.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.Time)).map(r => r.Date);

@@ -335,3 +335,57 @@ log stated as fact.
 **Closed 2026-09-14.** Mike pasted the 165-row column, redeployed the Apps Script, and `verify-proxy` passes every
 check including the two new ones: 88 rows carry a time, and none arrives shaped like a date. The `Time` column is
 back on the live dashboard with its real values. ca5 is unblocked.
+
+---
+
+## ca3b — checkpoint review of `3ee13e2..HEAD` (ca2a), 2026-09-14
+
+Not triggered by size (137 lines) but by blast radius: ca2a added a branch to `cell()` in `Code.gs`, the single
+point every cell of every column passes through on read. Five targets, all resolved. Every claim below is either
+a statement about code in this repo or a check that now runs; nothing here asserts anything about the sheet's
+contents that was not measured. That is the rule ca2 broke.
+
+**1. `cell()`'s 1900 cutoff — fixed by removing the guess.** The branch read a Date's year and called anything
+before 1900 a time-of-day. That is a rule about *values* applied to *every column at once*: any cell Sheets
+happens to auto-type as a date — a `Note` that reads like one, a stray typed time — would be silently reformatted
+by a rule only ever meant for `Time`. Rather than try to prove the negative about data behind a private sheet,
+`cell()` now takes the column name and formats as a time only for columns in `TIME_COLS` (`['Time']`). The
+heuristic is gone, so there is nothing left to be wrong about. A genuine pre-1900 date in `Date` would also now
+survive.
+
+*Timezone.* `getValues()` converts a sheet cell to a Date through the **spreadsheet's** timezone and
+`Utilities.formatDate(v, tz, …)` renders it back through the same one, so the round trip cancels and 6:32 AM
+cannot arrive as 5:32 AM — **while the two agree**. The failure case is `Code.gs`'s `|| 'Etc/GMT'` fallback: if
+the sheet ever reports no timezone, every time shifts by hours in silence. `doGet` now returns `tz` in the
+payload and `verify-proxy` fails on a missing one or on the bare fallback.
+
+**2. `fmtTime` vs `cell()` — they agree; now bound rather than asserted.** `fmtTime` emits `h:mm AM` (`12:07 AM`
+at midnight, `12:00 PM` at noon, minutes zero-padded, hours not); Apps Script's `h:mm a` produces the identical
+shape. Reasoned, not executable from here — so `verify-proxy` now fails any live row whose `Time` does not match
+`h:mm AM/PM`, which makes the agreement a check instead of a claim.
+
+**3. `SOURCE_COLS` — the gate had exactly the hole the slice suspected.** It was a `Set`, so adding a name
+silenced it with no destination required, which is a passing check sitting on top of the original bug. It is now
+a **map from source column to destination**, and `verify()` checks both halves: an unlisted column still stops
+the migration, and a listed column that carries values whose destination came out empty on every row stops it
+too. That second check *is* the ca2 bug, reproduced as a test in `migrate-selfcheck`. A destination outside
+`NEW_COLS` fails as a typo. `Day` is now honestly documented as landing in `Cycle Start`, not as "not stored".
+
+**4. `hasData` vs `NEW_COLS` vs the placeholder rule — bound, and one latent loss fixed.** `hasData` reached
+`Ovulation` only through the adapter's synthesised `r.Cycle`, and ca4 is scheduled to delete that synthesis —
+which would have quietly dropped ovulation-only days out of `detectPhase` and rendered them as blank rows.
+`hasData` now names `r.Ovulation` directly. `adapter-selfcheck` asserts `hasData` mentions every `NEW_COLS`
+column except `Date`, so the two lists can no longer drift. The migration's placeholder test enumerates *source*
+columns, not new ones; it stays separate, and `verify()`'s existing Day-1 / ovulation / Exclude comparisons
+already fail loudly if it ever drops a real row.
+
+**5. `verify-proxy`'s hardcoded counts — now floors.** `times: 88`, `rows: 165` and `last: '2026-09-11'` were all
+equalities, and all three would have started failing on Mike's first ca5 entry. A safety check that cries wolf is
+worse than no check, so row count, time count and last date are floors; `first` and the completed-cycle facts
+stay exact, because nothing may rewrite history.
+
+**Checks.** `adapter-selfcheck` and `migrate-selfcheck` pass, including three new negative cases proving the new
+guards actually fail when they should. `verify-proxy` needs the live proxy and Mike's tokens.
+
+**Requires a redeploy.** `cell()` changed signature and `doGet` now returns `tz`; the Apps Script must be
+redeployed before `verify-proxy` will pass the timezone check.

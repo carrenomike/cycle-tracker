@@ -85,3 +85,18 @@ backdated entry immediately moves a verdict that is already correct.)
 - `adaptRows`' `flag()` helper is the single place yes/no columns are read. Anything this slice writes to
   `Cycle Start`, `Ovulation` or `Exclude` should be the literal `TRUE`, matching what a ticked Sheets checkbox
   flattens to through the proxy.
+
+## Added by ca3b (2026-09-14)
+
+- **Write `Time` as the literal string `h:mm AM`** (e.g. `6:32 AM`, `12:07 AM` for midnight, `12:00 PM` for noon).
+  That is what `fmtTime` in `migrate-sheet.js` produced for the 88 migrated rows and what `cell()` in `Code.gs`
+  renders on read, so a new entry that matches it is indistinguishable from a migrated one. `verify-proxy` now
+  fails any row whose `Time` does not match `h:mm AM/PM`, so a divergent write is caught on the next run.
+- **`verify-proxy`'s row, last-date and time counts are now floors, not equalities**, precisely so this slice's
+  first new entry does not fail the check. Do not turn them back into equalities; raise the floors if you want to
+  pin a new baseline.
+- **Adding a column means three edits, and one check enforces them.** `NEW_COLS` in `migrate-sheet.js`, `hasData`
+  in `index.html`, and the table header/body in `buildLogRows`. `adapter-selfcheck` fails if `hasData` does not
+  name every `NEW_COLS` column, so the first two cannot drift apart.
+- **`cell()` decides a Date's format from the column name, not the value.** If this slice adds a second
+  time-of-day column, add its name to `TIME_COLS` in `Code.gs` or it will arrive as `1899-12-30`.

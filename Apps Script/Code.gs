@@ -47,9 +47,12 @@ function doGet(e) {
     const tz = ss.getSpreadsheetTimeZone() || 'Etc/GMT';
     const rows = values
       .filter(row => row[dateAt] !== '' && row[dateAt] !== null)
-      .map(row => row.map(v => cell(v, tz)));
+      .map(row => row.map((v, i) => cell(v, tz, cols[i])));
 
-    return reply(p.callback, { ok: true, role: role, cols: cols, rows: rows });
+    // tz travels with the payload: a time-of-day cell round-trips through it,
+    // so a wrong or fallback timezone silently shifts every time by an hour.
+    // Tools/verify-proxy.js asserts on it rather than trusting it.
+    return reply(p.callback, { ok: true, role: role, tz: tz, cols: cols, rows: rows });
   } catch (err) {
     // Never swallow: the client shows this string, and it lands in the Apps
     // Script execution log either way.
@@ -63,15 +66,22 @@ function doGet(e) {
  * boolean, temps become numbers. The client wants the same flat strings the
  * old gviz feed gave it, so flatten here rather than in twelve places there.
  */
-function cell(v, tz) {
+const TIME_COLS = ['Time'];
+
+function cell(v, tz, col) {
   if (v === null || v === undefined || v === '') return '';
   if (v instanceof Date) {
     // Sheets stores a time-of-day cell ("6:32 AM") as a Date on its epoch day,
     // 1899-12-30. Formatting that as yyyy-MM-dd would hand the app "1899-12-30"
-    // instead of the time — the whole Time column, silently wrong. Anything in
-    // 1900 or later is a real calendar date.
-    if (v.getFullYear() < 1900) return Utilities.formatDate(v, tz, 'h:mm a');
-    return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+    // instead of the time — the whole Time column, silently wrong.
+    //
+    // Which format to use is decided by the COLUMN, never by the value. ca2a
+    // guessed from the year (<1900 means a time), which is a guess about every
+    // column at once: any cell Sheets happens to auto-type as a date — a Note
+    // that reads like one, a stray typed time — gets rewritten by a rule that
+    // was only ever meant for Time. The column name is knowledge we already
+    // have, so use it.
+    return Utilities.formatDate(v, tz, TIME_COLS.indexOf(col) >= 0 ? 'h:mm a' : 'yyyy-MM-dd');
   }
   if (typeof v === 'boolean') return v ? 'TRUE' : '';
   return String(v).trim();

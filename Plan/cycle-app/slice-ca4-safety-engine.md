@@ -122,3 +122,11 @@ that trail the end of cycles 3 and 4.
   `row-empty` class still read it. Delete it here if the rewritten readers no longer need it.
 - **The adapter's `Cycle` half comes out in this slice.** `flag()` and the `Cycle Start` / `Ovulation` / `Exclude`
   normalisation must stay — only the `row.Cycle` synthesis is ca3 scaffolding.
+
+## Added by ca3b (2026-09-14)
+
+- **When you delete the `Cycle` half of the adapter, `hasData` in `index.html` must keep working.** It used to
+  reach `Ovulation` only through the synthesised `r.Cycle`; ca3b added `r.Ovulation` to it directly, so the
+  synthesis can go without taking a column with it. Drop the `r.Cycle` term at the same time as the synthesis.
+- `Tools/adapter-selfcheck.js` now also asserts that `hasData` names every column of `NEW_COLS`. If this slice
+  changes what a logged day can hold, that check is where it will complain.
