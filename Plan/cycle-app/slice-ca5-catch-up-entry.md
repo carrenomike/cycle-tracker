@@ -13,6 +13,12 @@ via the proxy in this slice — the offline queue and unsent banner are slice 6.
   Tab visibility is cosmetic — the write endpoint's token check is the only thing that actually stops a write.
 - Slice ca2's decision that there are **no pre-created future rows** means every write here either appends a new row
   for a date or updates the existing row for that date. There is no "fill in the blank row" case.
+- **`Temp Quality` is blank on all 165 migrated rows.** ca2 deliberately set none of them — 15 rows carry notes
+  hinting an off-time or disturbed reading (`Switched to 6:30 AM`, `97.37 (4a)`, `Deep sleep`, `Bakersfield`), and
+  the migration refused to guess. Re-run `Tools/migrate-sheet.js` against the old sheet to reprint that list; Mike
+  sets those 15 by hand through this screen.
+- **6 migrated rows have no temperature**, including Day 1 of cycle 1. Temp is required for a *new* entry made here,
+  but this screen must be able to open and edit an existing temp-less row without inventing a value for it.
 
 ## Locked decisions
 
@@ -24,7 +30,10 @@ via the proxy in this slice — the offline queue and unsent banner are slice 6.
 - **Ticking a Temp Quality flag pre-ticks Exclude** as a suggestion. It is overridable, not forced.
 - The app **suggests `Cycle Start`** when bleeding begins after a long non-bleeding stretch. Mike confirms or
   overrides — it is never set automatically.
-- **Second readings go in the Note field.** No dedicated field and no parsing of notes into temps, ever.
+- **Second readings go in the Note field.** No dedicated field and no parsing of notes into temps, ever. ca2
+  confirmed why: the notes carrying second readings are misaligned with their rows in the source data.
+- **Free-text detail migrated into the Note** as `cervix: <original wording>` / `mucus: <original wording>` on 29
+  rows, so ca2's mapping to the new enums stayed lossless. Editing such a row must not silently drop that text.
 - The ovulation marker is entered **by hand only**. Nothing on this screen may suggest an ovulation day.
 - **Writer token only.** The entry screen must not render at all for the reader token, and the endpoint must reject
   a reader token server-side as well — not just hide the UI.

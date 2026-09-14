@@ -24,12 +24,22 @@ Line numbers confirmed by reading `index.html` at commit `b1d0ef5` (post-ca1).
   safety engine can call it directly without re-checking.
 - `index.html:342-355` — `calcCoverline` already returns `null` until ovulation is marked, and already excludes
   rows flagged `Exclude`. Its baseline window is the 6 usable temps before the ovulation marker.
+- **A migrated row may have no temperature at all** (6 do, including Day 1 of cycle 1). "Usable" means *has a temp
+  and is not flagged `Exclude`* — a temp-less row must be skipped by the coverline and three-over-six windows, not
+  read as a zero or as a gap in the day count.
 - `index.html:390` — cycle day is date arithmetic off the cycle's first row (ca1). This slice repoints the anchor
   at ca2's explicit `Cycle Start` flag.
 - `index.html:357-362` — `lastDataIndex` already walks back to the last logged row; reuse it for the unlogged
   count rather than writing a second version.
 - The safety logic was prototyped and verified against the real sheet on 2026-08-26. The prototype is
   scratchpad-only and is **not** a source file — port the logic, not the file.
+- **Cycle 5 now carries an ovulation marker** — day 23, 2026-09-05, added by Tirzah after 2026-08-26. Every earlier
+  statement in this plan that cycle 5 has no marker is stale (found in ca2, 2026-09-13). There are five markers.
+- **The coverline comparison must run in integer hundredths of a degree, not floating point.** Found in ca2 while
+  recomputing the expectations below: `97.88 + 0.1` is `97.97999999999999` in JS, so a temperature of exactly
+  `97.98` tests as *above* a coverline that it actually ties. On cycle 4 that one tie opened the safe window at d36
+  instead of d37 — a day early, on the unsafe side. Multiply every temperature and the `+0.1` / `+0.2` margins by
+  100 and round to integers before comparing. A tie must never count as clearing the coverline.
 
 ## Locked decisions
 
@@ -55,7 +65,10 @@ Carried intact from the scrapped wheel slice. These are settled; do not re-litig
 - **Missed-Day-1 guard:** cycle day ≥ 29 **and** unlogged days > 0 → the status line reads
   "Period may have started — log to confirm".
 - **Cycle day is date arithmetic** from ca2's `Cycle Start` flag. Never a lookup of the last logged row.
-- Expected safe-window openings against the real data, as a regression check: **d24 / d22 / d30 / d37 / never**.
+- Expected safe-window openings against the real data, as a regression check: **d24 / d22 / d30 / d37 / d27**.
+  Cycle 5 was `never` while it had no ovulation marker; with the day-23 marker and no three-over-six fire, it opens
+  at marker + 4. Recomputed against the migrated data in integer hundredths on 2026-09-13; cycles 1-4 reproduce
+  their original values exactly, which is what makes the new cycle-5 figure trustworthy.
 
 ## Constraint — the viewer sees no gate
 
@@ -66,13 +79,15 @@ Nothing else about the dashboard's appearance moves in this slice.
 ## Dependencies
 
 Slice ca3 landed. The rule needs ca2's `Flow` column for the opening bleed run and its `Cycle Start` flag for
-cycle day, so it cannot run against the old schema.
+cycle day, so it cannot run against the old schema. Note that ca2 put spotting days into `Flow` as `spotting`,
+distinct from `bleeding` — the opening bleed run is `bleeding` only, or the run would swallow the spotting days
+that trail the end of cycles 3 and 4.
 
 ## Exit criteria
 
 - No typecheck, test or build exists in this project.
-- Headless verification, stated in the STATE line: the engine reproduces **d24 / d22 / d30 / d37 / never** on the
-  real data; the three-over-six baseline window provably does not overlap its three high days; a cycle with its
+- Headless verification, stated in the STATE line: the engine reproduces **d24 / d22 / d30 / d37 / d27** on the
+  real data; a temperature that exactly ties the coverline is treated as *not* clearing it; the three-over-six baseline window provably does not overlap its three high days; a cycle with its
   ovulation marker removed never opens the window; mid-cycle breakthrough bleeding does not produce a Safe day;
   and today's cycle day matches the hand-count.
 - **Live test is Mike's**, on his phone: confirm the Safe/Unsafe verdict and its hint text, confirm the phase card

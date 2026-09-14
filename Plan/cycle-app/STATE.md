@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (ca1: 53; ca2 is tooling only, no app code)
+**Last reviewed commit:** 1065c1e — 53 unreviewed app lines (ca1: 53; ca2: 0, tool-only). Checkpoint at ~1,500.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -16,13 +16,7 @@ _(One line per slice. Detail lives in the archive log.)_
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **Cycle 5 HAS an ovulation marker** (day 23, 2026-09-05), added after 2026-08-26. ca1's and ca2's "cycle 5 has
-  none" is stale — ca4 plans for 5 markers, not 4.
-- **ca2's "day 7/8 notes 97.64 / 97.59" fact is wrong**: cycle-5 second readings are `97.59` day 9 and `97.88`
-  day 11; no `97.64` exists. Never-parse-a-note-into-Temp stands regardless.
-- **Migrated rows may have a blank Temp** (6 do, incl. Day 1 of cycle 1). Temp is required for *new* Log entries
-  only (ca5); readers must tolerate a temp-less row.
-- **`Temp Quality` is blank on all 165 migrated rows.** 15 candidates listed in the tool's output; Mike sets them by hand in ca5.
+- _(none — ca2's four all moved into the ca3/ca4/ca5 slice files, 2026-09-13.)_
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
