@@ -389,3 +389,22 @@ guards actually fail when they should. `verify-proxy` needs the live proxy and M
 
 **Requires a redeploy.** `cell()` changed signature and `doGet` now returns `tz`; the Apps Script must be
 redeployed before `verify-proxy` will pass the timezone check.
+
+**Closed 2026-09-14.** `verify-proxy` passes every check against the live proxy, sheet ID included. Three
+redeploy attempts were needed and each failure was a configuration trap rather than a code defect — worth
+recording, because all three are repeatable:
+
+1. *Redeployed without taking effect.* `tz` came back `undefined`, i.e. the key was absent, i.e. old code. The
+   distinction between a missing `tz` and the `Etc/GMT` fallback is what made this readable at a glance.
+2. *The paste wiped the secrets.* The repo's `Code.gs` is a template with `SHEET_ID` and both tokens blanked, so
+   pasting it over the editor blanked the live ones — and with blank tokens every request failed the role check
+   and reported `no-access`, pointing at a token problem that did not exist. **Fixed:** the config check now runs
+   before the token check, `verify-proxy` names the cause, and `SETUP.md` warns that re-entering the three
+   constants is part of every paste.
+3. *A new deployment instead of a new version.* The `/exec` URL changed, which meant `index.html`'s `PROXY_URL`
+   was left pointing at an older deployment still serving live traffic on valid tokens. `PROXY_URL` now points at
+   the verified deployment; **archive the old one in Manage deployments** so it cannot drift again.
+
+The one code change to come out of this: `doGet` reports `not-configured` before `no-access`. Saying "this
+deployment is not set up" leaks nothing and is the difference between a five-minute fix and an hour of hunting a
+token that was never wrong.

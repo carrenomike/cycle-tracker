@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 788b029 — 0 unreviewed app lines. Next checkpoint review is ca8.
+**Last reviewed commit:** d9d5eca — 0 unreviewed app lines. Next checkpoint review is ca8.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -21,11 +21,11 @@ _(One line per slice. Detail lives in the archive log.)_
   a time as a date; column back in the table. Pasted, redeployed, `verify-proxy` PASS 2026-09-14.
 - **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. `cell()` formats by column name, not a year; `tz`
   returned and checked; `SOURCE_COLS` is a destination map and a column landing nowhere now fails; `hasData` names
-  `Ovulation` (ca4 deletes the `r.Cycle` it leaned on); counts are floors. Self-checks PASS, redeploy pending.
+  `Ovulation` (ca4 deletes the `r.Cycle` it leaned on); counts are floors. All checks PASS live 2026-09-14.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **Apps Script needs a redeploy** — ca3b changed `cell()` and added `tz`; `verify-proxy` fails until then.
+- _(none)_
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_
