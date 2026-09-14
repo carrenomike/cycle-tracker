@@ -5,7 +5,7 @@
 **When the user says "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded
 at session start; the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (ca1: 53)
+**Last reviewed commit:** 1065c1e (plan start) — 53 unreviewed lines (ca1: 53; ca2 tooling: 0, no app code)
 
 ## Done
 
@@ -16,12 +16,25 @@ _(One line per slice, appended as each lands.)_
   no-op). (b) `detectOvDay` unchanged 16/18/23/31 for cycles 1-4, `null` for cycle 5. (c) Cycle day = 13 by date
   math from 2026-08-14, matches hand-count and the old value today; no longer drifts on unlogged days. Awaiting
   Mike's live test.
+- **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg; repo is public). Verified 2026-09-13: 177 rows → 165,
+  12 empty placeholders dropped; 159 temps identical; 5 Day-1s, 5 ov markers, 3 Excludes, 30 bleeding days and
+  every note preserved; no invented Temp. Outliers resolved with Mike: `Breasts = sore` recovered on 10 rows
+  (08-02..08-11), `Cervix Position = low` on 1, Temp Quality blank everywhere (15 candidates, his call in ca5),
+  free-text mucus/cervix mapped with original wording appended to Note. **TSV handed over; sheet not yet created,
+  nothing pasted.** App untouched, still on the old sheet.
 
 ## Open deviations from spec
 
 _(Things later slices must know. One line each. Delete once resolved.)_
 
-- _(none)_
+- **Cycle 5 HAS an ovulation marker** (day 23, 2026-09-05), added after 2026-08-26. ca1's and ca2's "cycle 5 has
+  none" is stale — ca4 plans for 5 markers, not 4.
+- **ca2's "day 7/8 notes 97.64 / 97.59" fact is wrong**: cycle-5 second readings are `97.59` day 9 and `97.88`
+  day 11; no `97.64` exists. Never-parse-a-note-into-Temp stands regardless.
+- **Migrated rows may have a blank Temp** (6 do, incl. Day 1 of cycle 1). Temp is required for *new* Log entries
+  only (ca5); readers must tolerate a temp-less row.
+- **Cervix Position stays blank unless the source names a position** (1 row). Correlated with texture in reality,
+  but a derived position would double-count one observation in ca4's rules.
 
 ## Locked decisions
 
