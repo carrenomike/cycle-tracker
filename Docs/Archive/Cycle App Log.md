@@ -778,3 +778,7 @@ affordance, with its own confirmation, belongs with ca6's write queue.
 **Verification.** All six self-checks PASS: adapter, safety, staleness, render, migrate-sheet, entry.
 `verify-proxy` re-run against the real sheet, all checks passed. Mike confirmed live on his phone that the save
 lands. Deployed.
+
+**Live confirmation (2026-09-15).** Mike confirmed all three fixes on the phone: the green "Saved to …" line
+survives the reload, the read retry rides out the `/exec` 404, and the cached copy paints immediately with the
+safety card holding at "Checking…" until the live read lands.
