@@ -87,3 +87,21 @@ Slice ca5 landed.
 - **`_openDate`, `_catchupDays`, `_byIso` and `_saving`** are the entry screen's state, and `render()` now has an
   early return for `_tab === 'log'`. A banner added to `render()` must be added to **both** exits or it will be
   invisible on the exact screen where the queue is used.
+
+## Added by ca5a (2026-09-15) — what the write path learned under review
+
+- **The endpoint now replies with two warning fields, and they must survive the queue.** `doPost` returns
+  `unreadableDates` (a row whose `Date` cell was not `yyyy-MM-dd`, so ordering could not be trusted) and
+  `textNotStored` (a text column the sheet refused to keep verbatim). ca5a wired both into `_savedNote.warn`,
+  shown on the saved line as "It saved, but … Worth a look at the sheet." A flush that drops these is a silent
+  swallow of exactly the kind this slice exists to prevent: a flushed entry that reports success while carrying a
+  warning must still show it.
+- **`ok: true` is not the same as "stored what was sent".** The write can succeed and the sheet still hold
+  something else. The queue's rule "an entry never leaves the queue except by a confirmed successful write" should
+  read the reply, not just its status — `textNotStored` is a successful write that did not store the value.
+- **Do not add a retry loop around `postEntry` inside `Code.gs`.** The endpoint is already serialised by a script
+  lock; retries belong in the client queue, where they are visible.
+- **Trap for anyone editing `Code.gs`:** `SpreadsheetApp` buffers its writes while the advanced Sheets service
+  writes straight to the backend, so the two land out of order unless `SpreadsheetApp.flush()` separates them.
+  Five live runs were lost to this. The text-column write at the end of `writeRow` depends on that flush and on
+  the read-back after it — leave both in place.

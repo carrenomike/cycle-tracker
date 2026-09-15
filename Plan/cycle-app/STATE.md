@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** db5a8ee (ca5a). Unreviewed tally: 0. Next slice is **ca6** (write queue).
+**Last reviewed commit:** db5a8ee (reviewed by ca5a). Unreviewed tally: ~280 lines — ca5a's own fixes, which no slice has reviewed. Next slice is **ca6** (write queue).
 ## Done
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. Dropped `Time`.
