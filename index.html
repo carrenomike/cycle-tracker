@@ -349,15 +349,20 @@ tfoot td {
      the offset is the larger one a strip of scrolling content shows between them.
      One custom property feeds both so they cannot drift. min/max-width rather than
      width because the auto table layout treats a plain width as a suggestion and
-     shrank this column to less than the offset. Tune --pin alone if "Day" ever
-     needs more room. */
-  .log-tbl { --pin: 52px; }
+     shrank this column to less than the offset.
+
+     Day is one or two digits, but the DAY header is the wider of the two and sets
+     the floor, so this column also gets tighter side padding than the rest of the
+     table. --pin is the one knob; raise it if the header ever clips. */
+  .log-tbl { --pin: 38px; }
   .log-tbl th:first-child,  .log-tbl td:first-child,
   .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) { position: sticky; z-index: 1; }
   .log-tbl th:first-child,  .log-tbl td:first-child {
     left: 0;
     min-width: var(--pin);
     max-width: var(--pin);
+    padding-left: 6px;
+    padding-right: 6px;
   }
   .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) {
     left: var(--pin);
