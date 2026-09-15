@@ -1,9 +1,9 @@
 /**
- * Cycle tracker read proxy.
+ * Cycle tracker read/write proxy.
  *
  * Sits in front of the private sheet so the sheet itself can stay private and
- * the app can keep working from GitHub Pages and from file://. Read only —
- * ca5 adds the write endpoint; there is deliberately no doPost here yet.
+ * the app can keep working from GitHub Pages and from file://. doGet reads for
+ * either token; doPost (ca5) writes for the writer token only.
  *
  * The three constants below are the only secrets in this system. This file
  * lives in the Apps Script editor, NOT in the public repo — the copy in the
@@ -107,4 +107,140 @@ function reply(callback, obj) {
   }
   return ContentService.createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * ca5 write endpoint. One row per date: update the row that already carries the
+ * date, otherwise insert a new one IN DATE ORDER. Nothing here ever appends
+ * blindly — the app reads the sheet top to bottom and splits cycles on the Day
+ * numbers it derives from the dates, so one out-of-order row would reshape
+ * every cycle after it.
+ *
+ * Keyed on the date and on nothing else, so a retry after Google's flaky /exec
+ * redirect rewrites the same row instead of adding a second one.
+ *
+ * Body is JSON, sent as text/plain so the browser treats it as a simple request
+ * and never fires a CORS preflight (Apps Script cannot answer one).
+ *   { t: <token>, date: 'YYYY-MM-DD', values: { 'Temp': '97.88', ... } }
+ *   { t: <token>, date: 'YYYY-MM-DD', op: 'delete' }
+ */
+function doPost(e) {
+  if (!SHEET_ID || !READER_TOKEN || !WRITER_TOKEN) {
+    return reply(null, { ok: false, error: 'not-configured' });
+  }
+
+  var body;
+  try { body = JSON.parse((e && e.postData && e.postData.contents) || 'null'); }
+  catch (err) { return reply(null, { ok: false, error: 'bad-request: body is not JSON' }); }
+  if (!body || typeof body !== 'object') {
+    return reply(null, { ok: false, error: 'bad-request: no body' });
+  }
+
+  // Writer only, checked server-side. Hiding the Log tab from the reader is
+  // cosmetic; this is the line that actually stops a read-only link writing.
+  // A reader token gets its own error so the app can say something true.
+  if (body.t !== WRITER_TOKEN) {
+    return reply(null, { ok: false, error: body.t === READER_TOKEN ? 'read-only' : 'no-access' });
+  }
+
+  var date = String(body.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return reply(null, { ok: false, error: 'bad-request: date must be YYYY-MM-DD' });
+  }
+  var del = body.op === 'delete';
+  if (!del && (!body.values || typeof body.values !== 'object')) {
+    return reply(null, { ok: false, error: 'bad-request: no values' });
+  }
+
+  // Two writes racing each other would both read the same last row and both
+  // insert. The retry on a flaky redirect is exactly that race.
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); }
+  catch (err) { return reply(null, { ok: false, error: 'busy: another write is still running' }); }
+
+  try {
+    return reply(null, writeRow(date, body.values, del));
+  } catch (err) {
+    console.error(err);
+    return reply(null, { ok: false, error: 'write-failed: ' + err.message });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Flags are written as the boolean a ticked checkbox holds, not the string
+// 'TRUE' — the columns carry checkboxes and a string would sit in them as an
+// invalid value. cell() flattens the boolean back to 'TRUE' on the way out.
+var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude'];
+
+function writeRow(date, values, del) {
+  var ss    = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return { ok: false, error: 'sheet-missing: ' + SHEET_NAME };
+
+  var tz     = ss.getSpreadsheetTimeZone() || 'Etc/GMT';
+  var cols   = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  var dateAt = cols.indexOf('Date');
+  if (dateAt < 0) return { ok: false, error: 'sheet-missing-Date-column' };
+
+  // An unknown column stops the write. Dropping a field the app thought it
+  // saved is the one failure this screen must never have.
+  if (!del) {
+    for (var k in values) {
+      if (k === 'Date') return { ok: false, error: 'bad-request: Date is the key, not a value' };
+      if (cols.indexOf(k) < 0) return { ok: false, error: 'unknown-column: ' + k };
+    }
+  }
+
+  var lastRow = sheet.getLastRow();
+  var dates   = lastRow > 1 ? sheet.getRange(2, dateAt + 1, lastRow - 1, 1).getValues() : [];
+  var target = 0, insertAt = 0;
+  for (var i = 0; i < dates.length; i++) {
+    var v = dates[i][0];
+    if (v === '' || v === null) continue;
+    var iso = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v).trim();
+    if (iso === date) { target = i + 2; break; }
+    if (iso > date && !insertAt) insertAt = i + 2;   // first row dated later
+  }
+
+  if (del) {
+    if (!target) return { ok: true, action: 'absent', date: date };
+    sheet.deleteRow(target);
+    return { ok: true, action: 'deleted', date: date, row: target };
+  }
+
+  var action, row;
+  if (target) {
+    action = 'updated';
+    row    = target;
+  } else if (insertAt) {
+    // insertRowBefore/After copy the formatting (and the checkboxes) of the
+    // neighbouring row, so a new row looks and behaves like a migrated one.
+    sheet.insertRowBefore(insertAt);
+    action = 'inserted';
+    row    = insertAt;
+  } else {
+    sheet.insertRowAfter(Math.max(lastRow, 1));
+    action = 'appended';
+    row    = Math.max(lastRow, 1) + 1;
+  }
+
+  // Read-patch-write: one read and one write, and every column this request did
+  // not mention keeps exactly what it had.
+  var cur = sheet.getRange(row, 1, 1, cols.length).getValues()[0];
+  if (action !== 'updated') {
+    // Noon, not midnight: the script's timezone and the sheet's need not be the
+    // same, and a midnight date read back through a different one lands on the
+    // day before. Nothing reads the time part of a Date column.
+    cur[dateAt] = new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10), 12, 0, 0);
+  }
+  for (var col in values) {
+    var val = values[col];
+    cur[cols.indexOf(col)] = FLAG_COLS.indexOf(col) >= 0
+      ? (String(val).trim().toUpperCase() === 'TRUE' ? true : '')
+      : String(val == null ? '' : val).trim();
+  }
+  sheet.getRange(row, 1, 1, cols.length).setValues([cur]);
+
+  return { ok: true, action: action, date: date, row: row };
 }

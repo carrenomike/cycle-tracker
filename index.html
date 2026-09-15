@@ -247,6 +247,90 @@ tfoot td {
   outline: none;
 }
 
+/* ── Tabs (writer only) ─────────────────── */
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tab {
+  flex: 1;
+  padding: 12px 10px;
+  border: 1px solid #d1c4e9;
+  background: white;
+  color: #7b1fa2;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab.on { background: #7b1fa2; border-color: #7b1fa2; color: white; }
+
+/* ── Catch-up entry list ──────────────── */
+.day-card { border: 1px solid #ede7f6; border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+.day-card.open { border-color: #b39ddb; box-shadow: 0 1px 8px rgba(74,20,140,0.12); }
+.day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  background: white;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #2d2d2d;
+}
+.day-card.open .day-head { background: #faf5fd; }
+.day-when { font-weight: 600; white-space: nowrap; }
+.day-sum { color: #888; font-size: 0.8rem; text-align: right; }
+.day-card.unlogged .day-sum { color: #bbb; font-style: italic; }
+.day-body { padding: 4px 14px 16px; border-top: 1px solid #ede7f6; }
+.fld { margin-top: 12px; }
+.fld > label { display: block; font-size: 0.72rem; text-transform: uppercase;
+  letter-spacing: 0.5px; color: #999; margin-bottom: 5px; }
+.fld input, .fld select, .fld textarea {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid #d1c4e9;
+  border-radius: 8px;
+  background: white;
+  color: #2d2d2d;
+}
+.chk { display: inline-flex; align-items: center; gap: 8px; font-size: 0.92rem;
+  padding: 10px 14px 10px 0; cursor: pointer; }
+.chk input { width: 20px; height: 20px; }
+.chk.row { display: flex; margin-top: 4px; }
+.hint-line { font-size: 0.78rem; color: #7b1fa2; margin-top: 6px; }
+.save-btn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px;
+  background: #7b1fa2;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.save-btn:disabled { background: #b39ddb; }
+.save-status { margin-top: 10px; font-size: 0.86rem; line-height: 1.4; }
+.save-status.bad  { color: #c62828; font-weight: 600; }
+.save-status.good { color: #2e7d32; }
+.more-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  background: white;
+  border: 1px dashed #d1c4e9;
+  border-radius: 10px;
+  color: #7b1fa2;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
 /* ── Responsive ───────────────────────────────────── */
 @media (max-width: 620px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
@@ -276,6 +360,8 @@ let allCycles        = null;
 let overlayShowFull  = false;
 let selectedLogCycle = null;
 let currentDayNumber = null;
+let _tab             = 'dashboard';
+let _role            = null;   // 'writer' | 'reader', as the server reported it
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -569,9 +655,410 @@ function dismissBanner() {
   if (el) el.remove();
 }
 
+// ── Catch-up entry (writer only) ───────────────────────────────────────────
+
+// >>> ENTRY — extracted and executed verbatim by Tools/entry-selfcheck.js, which
+// matches on these two marker lines. Keep them, and keep this block free of
+// anything that only exists in a browser.
+
+// The ca2 schema, in the order the form shows it. One list drives the form, the
+// diff and the confirmation text, so a field cannot exist in one and not the
+// others — a field the form collects but the diff ignores would look saved and
+// never leave the phone.
+//
+// `options` are the literal strings that go into the sheet; `labels` are what
+// Mike reads. The two differ only where the sheet's value for "nothing" is
+// blank: the migrated rows carry '' for no flow and no soreness, and inventing
+// a 'none' here would put a value in the sheet that nothing else ever wrote.
+const QUALITY_OPTS = ['off-time', 'disturbed'];
+
+const ENTRY_FIELDS = [
+  { col: 'Temp',            label: 'Temp (°F)',     type: 'temp' },
+  { col: 'Time',            label: 'Time taken',         type: 'time' },
+  { col: 'Temp Quality',    label: 'Reading quality',    type: 'quality' },
+  { col: 'Exclude',         label: 'Exclude this reading from the rules', type: 'flag' },
+  { col: 'Flow',            label: 'Flow',               type: 'select',
+    options: ['', 'spotting', 'bleeding'], labels: ['none', 'spotting', 'bleeding'] },
+  { col: 'Cervical Mucus',  label: 'Cervical mucus',     type: 'select',
+    options: ['', 'Dry', 'Sticky', 'Creamy', 'Watery', 'Egg-white'],
+    labels:  ['—', 'Dry', 'Sticky', 'Creamy', 'Watery', 'Egg-white'] },
+  { col: 'Cervix Texture',  label: 'Cervix texture',     type: 'select',
+    options: ['', 'firm', 'medium', 'soft'], labels: ['—', 'firm', 'medium', 'soft'] },
+  { col: 'Cervix Position', label: 'Cervix position',    type: 'select',
+    options: ['', 'low', 'mid', 'high'], labels: ['—', 'low', 'mid', 'high'] },
+  { col: 'Breasts',         label: 'Breasts',            type: 'select',
+    options: ['', 'minor', 'sore'], labels: ['none', 'minor', 'sore'] },
+  { col: 'Ovulation',       label: 'Ovulation marker',   type: 'flag' },
+  { col: 'Cycle Start',     label: 'Cycle start (Day 1)', type: 'flag' },
+  { col: 'Note',            label: 'Note',               type: 'text' },
+];
+
+const isoOf = d =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Day arithmetic through a Date, so month ends are the platform's problem
+// rather than this file's.
+function isoShift(iso, delta) {
+  return isoOf(new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + delta));
+}
+
+// <input type="time"> speaks 24-hour "HH:MM"; the sheet's migrated rows carry
+// "h:mm AM". ca3b pinned that spelling and Tools/verify-proxy.js fails any row
+// that diverges from it, so convert at this one boundary and nowhere else.
+function toSheetTime(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || '').trim());
+  if (!m) return '';
+  const h = +m[1];
+  if (h > 23 || +m[2] > 59) return '';
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+function fromSheetTime(s) {
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(String(s || '').trim());
+  if (!m) return '';
+  let h = +m[1] % 12;
+  if (/p/i.test(m[3])) h += 12;
+  return `${String(h).padStart(2, '0')}:${m[2]}`;
+}
+
+// A form value as the sheet would hold it.
+function sheetValue(f, v) {
+  if (f.type === 'flag')    return v ? 'TRUE' : '';
+  if (f.type === 'quality') return (v || []).join(', ');
+  if (f.type === 'time')    return toSheetTime(v);
+  return String(v == null ? '' : v).trim();
+}
+
+// 97.9 and 97.90 are the same reading. Compared as numbers so re-opening and
+// re-saving a row never rewrites its Temp.
+function sameTemp(a, b) {
+  if (!a || !b) return !a && !b;
+  return parseFloat(a) === parseFloat(b);
+}
+
+// Only what actually changed is sent. That keeps the confirmation honest (it
+// lists exactly what the sheet is about to be told), makes a re-send after a
+// flaky redirect a no-op, and leaves every other column of an existing row
+// untouched — including the `cervix: <wording>` text ca2 folded into the Note.
+function entryDiff(existing, form) {
+  const out = {};
+  for (const f of ENTRY_FIELDS) {
+    const was = existing ? String(existing[f.col] || '').trim() : '';
+    const now = sheetValue(f, form[f.col]);
+    if (f.type === 'temp' ? !sameTemp(was, now) : was !== now) out[f.col] = now;
+  }
+  return out;
+}
+
+// Refusals, not warnings — a saved entry must never be a guess. A temperature
+// that was typed has to be a real one; a temperature that was never taken is
+// not an error. Readings do get missed and the day still happened: its flow,
+// mucus and cervix are worth as much as any other day's, and a row with no Temp
+// is simply skipped by the coverline rather than corrupting it. A day with
+// nothing at all on it is stopped by the empty diff in saveEntry instead.
+function entryProblem(existing, form) {
+  const t = String(form.Temp == null ? '' : form.Temp).trim();
+  if (t) {
+    const n = parseFloat(t);
+    if (!/^\d{2,3}(\.\d{1,2})?$/.test(t) || isNaN(n) || n < 90 || n > 110) {
+      return `"${t}" is not a temperature between 90 and 110.`;
+    }
+  }
+  // A time with no reading is a half-filled form, not a missed reading.
+  if (!t && toSheetTime(form.Time)) return 'There is a time but no temperature.';
+  return null;
+}
+
+// Bleeding that follows a run of days with no bleeding is almost always Day 1.
+// Suggested, never set: a Cycle Start in the wrong place merges or splits a
+// cycle, which moves the cycle day and therefore the safety verdict. Nothing
+// ever suggests Ovulation — that marker is Mike's hand only.
+const CYCLE_START_LOOKBACK = 5;
+
+function suggestCycleStart(flowOn, iso) {
+  if (String(flowOn(iso) || '').trim().toLowerCase() !== 'bleeding') return false;
+  for (let i = 1; i <= CYCLE_START_LOOKBACK; i++) {
+    if (String(flowOn(isoShift(iso, -i)) || '').trim().toLowerCase() === 'bleeding') return false;
+  }
+  return true;
+}
+
+// ca4: a backdated write moves the dashboard's Safe/Unsafe the moment it lands,
+// so the last thing before a write is a plain list of what is about to be
+// written. Cleared fields say so rather than showing as blank.
+function confirmText(label, diff) {
+  const lines = Object.keys(diff).map(c => `${c}: ${diff[c] === '' ? '(cleared)' : diff[c]}`);
+  return `Save to ${label}?\n\n${lines.join('\n')}`;
+}
+
+// What the app says out loud for each error the write endpoint can return.
+// Anything unrecognised is shown verbatim — never swallowed, never softened.
+function writeErrorText(err) {
+  if (err === 'read-only')      return 'This is a read-only link — it cannot save.';
+  if (err === 'no-access')      return 'This link is not valid any more.';
+  if (err === 'not-configured') return 'The server is not finished being set up.';
+  return String(err || 'the server sent a reply this app could not read');
+}
+// <<< ENTRY
+
+let _openDate    = null;   // the one day whose form is open
+let _catchupDays = 14;     // how far back the catch-up list runs
+let _byIso       = new Map();
+let _saving      = false;
+
+const F_AT = col => ENTRY_FIELDS.findIndex(f => f.col === col);
+
+function switchTab(tab) {
+  _tab = tab;
+  if (allCycles) render(allCycles);
+}
+
+function tabBarHTML() {
+  // Cosmetic only. The endpoint rejects a reader token server-side; this just
+  // keeps a surface the reader has no use for off her screen.
+  if (_role !== 'writer') return '';
+  return `<div class="tabs">
+    <button class="tab ${_tab === 'dashboard' ? 'on' : ''}" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="tab ${_tab === 'log' ? 'on' : ''}" onclick="switchTab('log')">Log</button>
+  </div>`;
+}
+
+// Cycle day for any date, logged or not — the same date arithmetic the
+// dashboard uses, so the number on a catch-up row matches the Cycle Day card.
+function dayNumberFor(cycles, d) {
+  for (let i = cycles.length - 1; i >= 0; i--) {
+    const start = cycles[i][0] && cycles[i][0]._date;
+    if (start instanceof Date && d >= start) return Math.round((d - start) / 86400000) + 1;
+  }
+  return null;
+}
+
+function dayLabel(iso) {
+  const d = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// Everything a logged day holds, in one line. Flow, Exclude and Temp Quality
+// are here as well as in the log table: a spotting-only day, or a reading
+// marked off-time, must be visible from the screen it was entered on. (ca3a)
+function daySummary(r) {
+  if (!r) return 'not logged';
+  const bits = [];
+  if (r.Temp) bits.push(parseFloat(r.Temp).toFixed(2) + '°' + (r.Time ? ` at ${r.Time}` : ''));
+  if (r.Flow) bits.push(r.Flow);
+  if (r['Cervical Mucus']) bits.push(String(r['Cervical Mucus']).toLowerCase());
+  if (r['Temp Quality']) bits.push(r['Temp Quality']);
+  if (r.Exclude === 'TRUE') bits.push('excluded');
+  if (r.Ovulation === 'TRUE') bits.push('ovulation');
+  if (r['Cycle Start'] === 'TRUE') bits.push('day 1');
+  return bits.length ? escHTML(bits.join(' · ')) : 'blank row';
+}
+
+function entryScreenHTML(cycles) {
+  _byIso = new Map();
+  for (const cyc of cycles) for (const r of cyc) _byIso.set(isoOf(r._date), r);
+
+  const now = new Date();
+  const cards = [];
+  for (let i = 0; i < _catchupDays; i++) {
+    // Newest first: today at the top, working backwards. Backfill is the
+    // normal case here, not the exception.
+    const d   = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const iso = isoOf(d);
+    const row = _byIso.get(iso) || null;
+    const day = dayNumberFor(cycles, d);
+    const open = _openDate === iso;
+    cards.push(`<div class="day-card${open ? ' open' : ''}${row ? '' : ' unlogged'}">
+      <button class="day-head" onclick="openDay('${iso}')">
+        <span class="day-when">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</span>
+        <span class="day-sum">${daySummary(row)}</span>
+      </button>
+      ${open ? entryFormHTML(iso, row) : ''}
+    </div>`);
+  }
+
+  return `<div class="section">
+    <h2>Log a day</h2>
+    <div>${cards.join('')}</div>
+    <button class="more-btn" onclick="showMoreDays()">Show 14 more days</button>
+  </div>`;
+}
+
+function entryFormHTML(iso, row) {
+  const val = c => (row ? String(row[c] || '').trim() : '');
+
+  const body = ENTRY_FIELDS.map((f, i) => {
+    const id = `f${i}`;
+    const wrap = inner => `<div class="fld"><label for="${id}">${escHTML(f.label)}</label>${inner}</div>`;
+
+    if (f.type === 'temp') {
+      return wrap(`<input id="${id}" type="number" step="0.01" min="90" max="110"
+        inputmode="decimal" placeholder="97.88" value="${escHTML(val(f.col))}">`);
+    }
+    if (f.type === 'time') {
+      return wrap(`<input id="${id}" type="time" value="${escHTML(fromSheetTime(val(f.col)))}">`);
+    }
+    if (f.type === 'quality') {
+      const on = val(f.col).toLowerCase();
+      return wrap(QUALITY_OPTS.map((o, j) =>
+        `<label class="chk"><input id="${id}_${j}" type="checkbox" ${on.includes(o) ? 'checked' : ''}
+          onchange="onQualityChange()"> ${escHTML(o)}</label>`).join(''));
+    }
+    if (f.type === 'flag') {
+      return `<label class="chk row"><input id="${id}" type="checkbox"
+        ${val(f.col) === 'TRUE' ? 'checked' : ''}> ${escHTML(f.label)}</label>`;
+    }
+    if (f.type === 'select') {
+      // A value the sheet holds but this list does not know stays selectable,
+      // or opening the row would silently rewrite it to the first option.
+      const cur  = val(f.col);
+      const opts = f.options.slice();
+      const labs = (f.labels || f.options).slice();
+      if (cur && opts.indexOf(cur) < 0) { opts.push(cur); labs.push(cur + ' (already in the sheet)'); }
+      return wrap(`<select id="${id}" ${f.col === 'Flow' ? 'onchange="onFlowChange()"' : ''}>${
+        opts.map((o, j) => `<option value="${escHTML(o)}"${o === cur ? ' selected' : ''}>${escHTML(labs[j])}</option>`).join('')
+      }</select>`);
+    }
+    return wrap(`<textarea id="${id}" rows="2">${escHTML(val(f.col))}</textarea>`);
+  }).join('');
+
+  return `<div class="day-body">
+    ${body}
+    <div class="hint-line" id="entryHint"></div>
+    <button class="save-btn" id="saveBtn" onclick="saveEntry('${iso}')">${row ? 'Save changes' : 'Save new entry'}</button>
+    <div class="save-status" id="saveStatus"></div>
+  </div>`;
+}
+
+function openDay(iso) {
+  _openDate = _openDate === iso ? null : iso;
+  render(allCycles);
+}
+
+function showMoreDays() {
+  _catchupDays += 14;
+  render(allCycles);
+}
+
+function setHint(msg) {
+  const el = document.getElementById('entryHint');
+  if (el) el.textContent = msg;
+}
+
+function setSaveStatus(msg, cls) {
+  const el = document.getElementById('saveStatus');
+  if (el) { el.textContent = msg; el.className = 'save-status ' + (cls || ''); }
+}
+
+// Suggestions, both of them: they tick a box Mike can untick, and neither ever
+// reaches the sheet on its own.
+function onFlowChange() {
+  const cs = document.getElementById('f' + F_AT('Cycle Start'));
+  if (!cs || cs.checked || !_openDate) return;
+  const flowOn = iso => iso === _openDate
+    ? document.getElementById('f' + F_AT('Flow')).value
+    : (_byIso.get(iso) || {}).Flow || '';
+  if (suggestCycleStart(flowOn, _openDate)) {
+    cs.checked = true;
+    setHint('Bleeding after a clear stretch — Cycle start ticked as a suggestion. Untick it if this is not Day 1.');
+  }
+}
+
+function onQualityChange() {
+  const ex = document.getElementById('f' + F_AT('Exclude'));
+  const qi = F_AT('Temp Quality');
+  const any = QUALITY_OPTS.some((_, j) => {
+    const b = document.getElementById(`f${qi}_${j}`);
+    return b && b.checked;
+  });
+  if (any && ex && !ex.checked) {
+    ex.checked = true;
+    setHint('Flagged reading — Exclude ticked as a suggestion. Untick it to keep using this temperature.');
+  }
+}
+
+function readForm() {
+  const form = {};
+  ENTRY_FIELDS.forEach((f, i) => {
+    if (f.type === 'quality') {
+      form[f.col] = QUALITY_OPTS.filter((_, j) => document.getElementById(`f${i}_${j}`).checked);
+    } else if (f.type === 'flag') {
+      form[f.col] = document.getElementById('f' + i).checked;
+    } else {
+      form[f.col] = document.getElementById('f' + i).value;
+    }
+  });
+  return form;
+}
+
+// JSONP is GET-only, so the write path is a real fetch. text/plain keeps it a
+// "simple" request: Apps Script cannot answer a CORS preflight, and an
+// application/json content type would provoke one and fail before it left.
+function postEntry(iso, values) {
+  return fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ t: TOKEN, date: iso, values: values }),
+    signal: AbortSignal.timeout(30000),
+  }).then(res => res.text().then(text => {
+    try { return JSON.parse(text); }
+    catch (e) { throw new Error(`the server replied with something that is not an answer (HTTP ${res.status})`); }
+  }));
+}
+
+async function saveEntry(iso) {
+  if (_saving) return;
+  const row  = _byIso.get(iso) || null;
+  const form = readForm();
+
+  const problem = entryProblem(row, form);
+  if (problem) return setSaveStatus(problem, 'bad');
+
+  const diff = entryDiff(row, form);
+  if (!Object.keys(diff).length) return setSaveStatus('Nothing has changed on this day.', 'bad');
+  if (!confirm(confirmText(dayLabel(iso), diff))) return;
+
+  _saving = true;
+  const btn = document.getElementById('saveBtn');
+  if (btn) btn.disabled = true;
+  setSaveStatus('Saving…', '');
+  try {
+    const res = await postEntry(iso, diff);
+    if (!res || res.ok !== true) throw new Error(writeErrorText(res && res.error));
+    // Re-read rather than patch the copy in memory: the safety verdict is
+    // derived from the sheet, and a backdated write moves it.
+    _openDate = null;
+    setSaveStatus('Saved. Reloading…', 'good');
+    loadData();
+  } catch (e) {
+    console.error('Write failed:', e);
+    // Never optimistic. If this says NOT saved, nothing reached the sheet — and
+    // pressing Save again rewrites the same row rather than adding a second.
+    setSaveStatus('NOT saved — ' + (e.name === 'TimeoutError'
+      ? 'the server did not reply within 30 seconds.' : e.message), 'bad');
+  } finally {
+    _saving = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────
 
 function render(cycles) {
+  // Set before the branch: both screens read it, and openDay/showMoreDays
+  // re-render from it.
+  allCycles = cycles;
+
+  // The Log tab is its own screen. Charts are torn down rather than left
+  // pointing at a canvas that is no longer in the page.
+  if (_tab === 'log' && _role === 'writer') {
+    if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+    if (overlayChart)  { overlayChart.destroy();  overlayChart  = null; }
+    document.getElementById('app').innerHTML =
+      bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + tabBarHTML() + entryScreenHTML(cycles);
+    return;
+  }
+
   const current  = cycles[cycles.length - 1];
   const past     = cycles.slice(0, -1);
   const currentCoverline = calcCoverline(current); // null until ovulation is marked
@@ -791,9 +1278,13 @@ function render(cycles) {
         <thead><tr>
           <th>Day</th><th>Date</th><th>Temp</th>
           <th class="hide-sm">Time</th>
+          <th>Flow</th>
           <th class="hide-sm">Cervix</th>
+          <th class="hide-sm">Pos</th>
           <th class="hide-sm">Mucus</th>
           <th class="hide-sm">Breasts</th>
+          <th>Quality</th>
+          <th>Exc</th>
           <th>Phase</th><th>Note</th>
         </tr></thead>
         <tbody id="logTableBody">${buildLogRows(cycles[selectedLogCycle])}</tbody>
@@ -806,10 +1297,8 @@ function render(cycles) {
     ? `<div class="footer">Saved ${new Date(_staleInfo.at).toLocaleString()} &nbsp;&middot;&nbsp; Retrying every 10 minutes</div>`
     : `<div class="footer">Last updated ${new Date().toLocaleTimeString()} &nbsp;&middot;&nbsp; Auto-refreshes every 10 minutes</div>`;
 
-  allCycles = cycles;
-
   document.getElementById('app').innerHTML =
-    bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
+    bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + tabBarHTML() + statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
 
   drawTimelineChart(cycles);
   drawOverlayChart(cycles);
@@ -1020,9 +1509,13 @@ function buildLogRows(cycle) {
       <td style="white-space:nowrap">${r.Date}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
       <td class="hide-sm" style="white-space:nowrap">${r.Time || ''}</td>
+      <td>${r.Flow || ''}</td>
       <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
+      <td class="hide-sm">${r['Cervix Position'] || ''}</td>
       <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
       <td class="hide-sm">${r.Breasts || ''}</td>
+      <td>${r['Temp Quality'] || ''}</td>
+      <td>${r.Exclude === 'TRUE' ? 'yes' : ''}</td>
       <td>${cycleTag}</td>
       <td class="wrap">${r.Note || ''}</td>
     </tr>`;
@@ -1385,9 +1878,9 @@ function readCache() {
   return cacheIsUsable(c, PROXY_URL) ? c : null;
 }
 
-function writeCache(cols, rows) {
+function writeCache(cols, rows, role) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ proxy: PROXY_URL, at: Date.now(), cols: cols, rows: rows }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ proxy: PROXY_URL, at: Date.now(), role: role || null, cols: cols, rows: rows }));
   } catch (e) {
     // Full, blocked, or private mode. Drop only our own key — the access token
     // shares this storage and losing it would lock the user out entirely.
@@ -1421,6 +1914,7 @@ function failLoad(msg) {
     try {
       _staleInfo = { at: c.at };
       _bannerDismissed = false;   // a new failure always brings the banner back
+      if (_role === null) _role = c.role || null;
       renderPayload(c.cols, c.rows);
       return;
     } catch (e) {
@@ -1491,10 +1985,11 @@ function loadData() {
       // — a render failure is a data problem, not a reason to reload the app.
       _loadedOk = true;
       _staleInfo = null;
+      _role = resp.role || null;
       renderPayload(resp.cols, resp.rows);
       // Only cache what actually rendered, so a bad payload cannot overwrite a
       // good saved copy and leave the offline path broken too.
-      writeCache(resp.cols, resp.rows);
+      writeCache(resp.cols, resp.rows, resp.role);
     } catch (e) {
       console.error(e);
       failLoad(e.message);
@@ -1518,7 +2013,12 @@ function loadData() {
 }
 
 loadData();
-setInterval(loadData, 10 * 60 * 1000);
+// The refresh re-renders from scratch, which would wipe a half-typed entry.
+// A day being edited is unsaved work; the dashboard can wait ten more minutes.
+setInterval(() => {
+  if (_openDate) return console.log('Refresh skipped: an entry is open.');
+  loadData();
+}, 10 * 60 * 1000);
 </script>
 </body>
 </html>

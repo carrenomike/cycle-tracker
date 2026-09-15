@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Headless verification of the ca3 read proxy.
+// Headless verification of the read proxy and the ca5 write endpoint.
 //
 //   node Tools/verify-proxy.js <execUrl> <readerToken> <writerToken> [sheetId]
 //
 // Tokens and the sheet ID are arguments, not constants: this repo is public.
 // Pass the sheet ID to also confirm the sheet itself is private to the world.
 //
-// Checks the four rejection paths, then pulls the real rows through the SAME
+// Checks the four rejection paths, exercises the write endpoint end to end
+// against a sentinel date, then pulls the real rows through the SAME
 // adapter and the SAME safety engine the app uses — both extracted out of
 // index.html rather than copied, so a later edit to one cannot quietly drift
 // from the other — and asserts the dashboard numbers still come out the way
@@ -75,7 +76,8 @@ const loadSafety  = () => block('SAFETY',
 // intermittently 404s or 5xxs under back-to-back requests. Retry a few times,
 // out loud — a genuine 404 still fails the run rather than hiding in here.
 async function call(url, token, attempt = 1) {
-  const res = await fetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`);
+  const res = await fetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`,
+    { signal: AbortSignal.timeout(45000) });
   if ((res.status === 404 || res.status >= 500) && attempt < 4) {
     console.log(`  retry  HTTP ${res.status} from Google, attempt ${attempt} — waiting ${attempt}s`);
     await new Promise(r => setTimeout(r, attempt * 1000));
@@ -85,6 +87,35 @@ async function call(url, token, attempt = 1) {
   const text = await res.text();
   try { return JSON.parse(text); }
   catch { throw new Error(`Response was not JSON: ${text.slice(0, 200)}`); }
+}
+
+// The write side of the same flaky hop. Kept a "simple" request (text/plain)
+// for exactly the reason the app does it: Apps Script cannot answer a preflight.
+async function post(url, body, attempt = 1) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body),
+    // Without this a request that never comes back leaves the run sitting on a
+    // blank line forever, which reads exactly like a passing check that is slow.
+    signal: AbortSignal.timeout(45000),
+  });
+  if ((res.status === 404 || res.status >= 500) && attempt < 4) {
+    console.log(`  retry  HTTP ${res.status} from Google, attempt ${attempt} — waiting ${attempt}s`);
+    await new Promise(r => setTimeout(r, attempt * 1000));
+    return post(url, body, attempt + 1);
+  }
+  // An HTML page here means the deployment has no doPost — it is still on the
+  // version from before ca5. Say that instead of "not JSON".
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch {
+    throw new Error(/<html/i.test(text)
+      ? 'the /exec URL answered a POST with a web page, not JSON — the live deployment ' +
+        'predates doPost. Deploy > Manage deployments > edit > New version.'
+      : `Response was not JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 const pause = () => new Promise(r => setTimeout(r, 400));
@@ -139,7 +170,6 @@ function splitCycles(rows) {
       ? pass('writer token reads, role "writer"')
       : fail(`writer token returned ${JSON.stringify(w).slice(0, 200)}`);
   } catch (e) { fail(`writer token: ${e.message}`); }
-  console.log('  note  there is no write endpoint yet, so no wrong-role write to reject — that lands in ca5.');
 
   if (sheetId) {
     console.log('\n--- SHEET IS PRIVATE ---');
@@ -229,6 +259,106 @@ function splitCycles(rows) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   console.log(`  info  cycle day today: ${Math.round((today - start) / 86400000) + 1} (current cycle started ${cycles[cycles.length - 1][0].Date})`);
+
+  console.log('\n--- THE ca5 WRITE ENDPOINT ---');
+  // A date one day before the first migrated row and before any Cycle Start.
+  // The adapter gives it no Day number, so it is filtered out of every cycle,
+  // count and verdict — and if a crash ever leaves one behind, the "first date"
+  // check above fails loudly on the next run rather than hiding it.
+  const SENTINEL = '2026-03-24';
+  console.log(`  info  writing to the sentinel date ${SENTINEL}, then deleting it again`);
+  const rowsAt = async token => {
+    const r = await call(url, token);
+    if (r.ok !== true) throw new Error(JSON.stringify(r).slice(0, 200));
+    return r.rows.map(cells => {
+      const o = {};
+      r.cols.forEach((c, i) => { o[c] = cells[i] == null ? '' : String(cells[i]); });
+      return o;
+    });
+  };
+  const sentinelRow = rs => rs.filter(x => x.Date === SENTINEL || x.Date === 'Mar 24');
+
+  try {
+    const before = (await rowsAt(writerToken)).length;
+
+    // The whole point of the gate: the token decides, on the server. Hiding the
+    // Log tab from a reader is cosmetic — this is the part that holds.
+    for (const [what, token, expected] of [
+      ['reader token', readerToken, 'read-only'],
+      ['wrong token', 'not-a-real-token', 'no-access'],
+      ['no token', undefined, 'no-access'],
+    ]) {
+      const r = await post(url, { t: token, date: SENTINEL, values: { Temp: '99.99' } });
+      r.ok === false && r.error === expected
+        ? pass(`a write with a ${what} is refused by the server (${expected})`)
+        : fail(`a write with a ${what} returned ${JSON.stringify(r).slice(0, 200)}`);
+      await pause();
+    }
+
+    // Bad requests are refused before anything is written.
+    for (const [what, body] of [
+      ['a malformed date', { t: writerToken, date: '24/03/2026', values: { Temp: '97.11' } }],
+      ['a column the sheet does not have', { t: writerToken, date: SENTINEL, values: { Mood: 'fine' } }],
+      ['Date sent as a value', { t: writerToken, date: SENTINEL, values: { Date: '2026-01-01' } }],
+    ]) {
+      const r = await post(url, body);
+      r.ok === false ? pass(`${what} is refused (${r.error})`)
+                     : fail(`${what} was accepted: ${JSON.stringify(r).slice(0, 200)}`);
+      await pause();
+    }
+
+    // 1. A new day lands in date order, not on the end — the read path assumes
+    //    strictly ascending dates and splitCycles depends on it.
+    const ins = await post(url, { t: writerToken, date: SENTINEL,
+      values: { Temp: '97.11', Time: '6:32 AM', Flow: 'spotting', Note: 'verify-proxy sentinel' } });
+    ins.ok === true && (ins.action === 'inserted' || ins.action === 'appended')
+      ? pass(`a writer write lands (${ins.action}, row ${ins.row})`)
+      : fail(`the writer write returned ${JSON.stringify(ins).slice(0, 200)}`);
+    await pause();
+
+    let rs = await rowsAt(writerToken);
+    is(rs.length, before + 1, 'exactly one row was added');
+    let got = sentinelRow(rs);
+    is(got.length, 1, 'the sentinel date appears once');
+    if (got.length === 1) {
+      is(got[0].Temp, '97.11', 'the temperature landed');
+      is(got[0].Time, '6:32 AM', 'the time landed as h:mm AM');
+      is(got[0].Flow, 'spotting', 'spotting was written as spotting, never as bleeding');
+    }
+    is(rs[0].Date === SENTINEL || rs[0].Date === 'Mar 24', true,
+       'the backdated row was inserted in date order, not appended');
+    const misordered = rs.filter((r, i) => i && r.Date <= rs[i - 1].Date).map(r => r.Date);
+    misordered.length ? fail(`dates out of order after the write at: ${misordered.join(', ')}`)
+                      : pass('dates are still strictly ascending after the write');
+
+    // 2. Idempotence. Google's /exec redirect intermittently 404s and the app
+    //    retries; the same date must never become a second row.
+    const again = await post(url, { t: writerToken, date: SENTINEL, values: { Temp: '97.22' } });
+    is(again.ok === true && again.action, 'updated', 'a second write to the same date updates it');
+    await pause();
+    rs = await rowsAt(writerToken);
+    is(rs.length, before + 1, 'still exactly one added row — the retry did not duplicate');
+    got = sentinelRow(rs);
+    if (got.length === 1) {
+      is(got[0].Temp, '97.22', 'the update changed the temperature');
+      // Read-patch-write: a column the write never mentioned must survive,
+      // including the `cervix: …` text ca2 folded into the Note.
+      is(got[0].Note, 'verify-proxy sentinel', 'a column the update did not mention was left alone');
+      is(got[0].Flow, 'spotting', 'the untouched Flow survived the update');
+    }
+
+    // 3. Cleanup. There is no delete in the app — it exists so this check can
+    //    put the sheet back exactly as it found it.
+    const del = await post(url, { t: writerToken, date: SENTINEL, op: 'delete' });
+    is(del.ok === true && del.action, 'deleted', 'the sentinel row was deleted');
+    await pause();
+    rs = await rowsAt(writerToken);
+    is(rs.length, before, 'the sheet is back to the row count it started with');
+    is(sentinelRow(rs).length, 0, 'the sentinel date is gone');
+  } catch (e) {
+    fail(`the write checks could not finish: ${e.message} ` +
+         `— check the sheet for a leftover row dated ${SENTINEL} before trusting the next run`);
+  }
 
   console.log(failed ? `\n${failed} CHECK(S) FAILED\n` : '\nAll checks passed.\n');
   process.exit(failed ? 1 : 0);

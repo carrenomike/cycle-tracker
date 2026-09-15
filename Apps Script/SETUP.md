@@ -1,4 +1,4 @@
-# ca3 setup — the proxy and the two tokens
+# Setup — the proxy and the two tokens
 
 Everything here is done once, by hand, in a browser. Nothing in this file's
 sequence puts a secret into this repo: the repo is public and stays public.
@@ -60,7 +60,24 @@ to a logged-out fetch, that the ca2 paste landed intact (165 rows,
 2026-03-25 to 2026-09-11), and that the dashboard's numbers still come out the
 same — 5 cycles, the five Day-1 dates, and ovulation on days 16/18/23/31/23.
 
+It also exercises the write endpoint: it refuses a reader token *on the server*,
+inserts a row dated 2026-03-24 in date order, writes the same date twice to prove
+a retry cannot duplicate it, and deletes it again. That date sits before every
+cycle start, so nothing on the dashboard can see it — but if a run ever dies
+half way, delete any leftover **2026-03-24** row by hand before trusting the
+next one (the "first date" check will say so).
+
 Do not go on until it says **All checks passed**.
+
+## 5a. If writing is what changed
+
+`doPost` is the only thing that writes to the sheet, and it decides on the
+token it is handed — the reader token is rejected there, not in the app. The
+Log tab being hidden from a reader is cosmetic; it is not the lock.
+
+After a `Code.gs` paste, re-do the **Manage deployments → edit → New version**
+step and re-enter the three secrets, then re-run step 5. A deployment still on
+the old version answers reads perfectly and 404s or ignores every write.
 
 ## 6. Send the links
 
