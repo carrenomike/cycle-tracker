@@ -61,6 +61,17 @@ const is = (actual, expected, what) =>
   JSON.stringify(actual) === JSON.stringify(expected)
     ? pass(`${what}: ${JSON.stringify(actual)}`)
     : fail(`${what}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+// A write check that shows the reply when it fails. `r.ok === true && r.action`
+// collapses a server error into a bare `false`, which hides the one thing worth
+// reading — and a write can land and still report a problem (textNotStored,
+// unreadableDates), so those are printed on success too.
+const wrote = (r, action, what) => {
+  if (!r || r.ok !== true || r.action !== action)
+    return fail(`${what}: expected "${action}", got ${JSON.stringify(r).slice(0, 300)}`);
+  pass(`${what}: "${action}"`);
+  if (r.textNotStored)   console.log(`  warn  the server could not store text as text: ${JSON.stringify(r.textNotStored)}`);
+  if (r.unreadableDates) console.log(`  warn  date cells the server could not read: ${JSON.stringify(r.unreadableDates)}`);
+};
 const atLeast = (actual, floor, what) =>
   actual >= floor
     ? pass(`${what}: ${JSON.stringify(actual)} (floor ${JSON.stringify(floor)})`)
@@ -302,14 +313,21 @@ function splitCycles(rows) {
     }
 
     // Bad requests are refused before anything is written.
-    for (const [what, body] of [
-      ['a malformed date', { t: writerToken, date: '24/03/2026', values: { Temp: '97.11' } }],
-      ['a column the sheet does not have', { t: writerToken, date: SENTINEL, values: { Mood: 'fine' } }],
-      ['Date sent as a value', { t: writerToken, date: SENTINEL, values: { Date: '2026-01-01' } }],
+    // The expected error is named, not just `ok === false`. A run where the token
+    // was intermittently rejected passed all three of these as "refused" — refused
+    // for the wrong reason is not the check this is meant to be.
+    for (const [what, body, expected] of [
+      ['a malformed date', { t: writerToken, date: '24/03/2026', values: { Temp: '97.11' } },
+       'bad-request: date must be YYYY-MM-DD'],
+      ['a column the sheet does not have', { t: writerToken, date: SENTINEL, values: { Mood: 'fine' } },
+       'unknown-column: Mood'],
+      ['Date sent as a value', { t: writerToken, date: SENTINEL, values: { Date: '2026-01-01' } },
+       'bad-request: Date is the key, not a value'],
     ]) {
       const r = await post(url, body);
-      r.ok === false ? pass(`${what} is refused (${r.error})`)
-                     : fail(`${what} was accepted: ${JSON.stringify(r).slice(0, 200)}`);
+      r.ok === false && r.error === expected
+        ? pass(`${what} is refused (${r.error})`)
+        : fail(`${what}: expected the error "${expected}", got ${JSON.stringify(r).slice(0, 200)}`);
       await pause();
     }
 
@@ -340,7 +358,7 @@ function splitCycles(rows) {
     // 2. Idempotence. Google's /exec redirect intermittently 404s and the app
     //    retries; the same date must never become a second row.
     const again = await post(url, { t: writerToken, date: SENTINEL, values: { Temp: '97.22' } });
-    is(again.ok === true && again.action, 'updated', 'a second write to the same date updates it');
+    wrote(again, 'updated', 'a second write to the same date updates it');
     await pause();
     rs = await rowsAt(writerToken);
     is(rs.length, before + 1, 'still exactly one added row — the retry did not duplicate');
@@ -360,7 +378,7 @@ function splitCycles(rows) {
     //     offline checks — both need the real sheet.
     const fl = await post(url, { t: writerToken, date: SENTINEL,
       values: { Ovulation: 'TRUE', Exclude: 'TRUE', Note: '=1+1' } });
-    is(fl.ok === true && fl.action, 'updated', 'the flags and the formula-shaped note were written');
+    wrote(fl, 'updated', 'the flags and the formula-shaped note were written');
     await pause();
     got = sentinelRow(await rowsAt(writerToken));
     if (got.length === 1) {
@@ -370,7 +388,7 @@ function splitCycles(rows) {
     }
 
     const unfl = await post(url, { t: writerToken, date: SENTINEL, values: { Ovulation: '', Exclude: '' } });
-    is(unfl.ok === true && unfl.action, 'updated', 'unticking the flags was accepted');
+    wrote(unfl, 'updated', 'unticking the flags was accepted');
     await pause();
     got = sentinelRow(await rowsAt(writerToken));
     if (got.length === 1) {
@@ -385,7 +403,7 @@ function splitCycles(rows) {
     // 3. Cleanup. There is no delete in the app — it exists so this check can
     //    put the sheet back exactly as it found it.
     const del = await post(url, { t: writerToken, date: SENTINEL, op: 'delete' });
-    is(del.ok === true && del.action, 'deleted', 'the sentinel row was deleted');
+    wrote(del, 'deleted', 'the sentinel row was deleted');
     await pause();
     rs = await rowsAt(writerToken);
     is(rs.length, before, 'the sheet is back to the row count it started with');

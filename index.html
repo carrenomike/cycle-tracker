@@ -343,12 +343,26 @@ tfoot td {
   /* Even after hide-sm has done its work the log still shows eight columns on a
      phone, so .tbl-wrap scrolls it sideways — and Temp, Flow and Quality scroll
      away from the day they belong to. Pin Day and Date so a row always says what
-     it is. Column 2's offset has to equal column 1's width, which is why both are
-     written here as the same number rather than left to the content. */
+     it is.
+
+     Column 2 stops at column 1's width, so the two numbers must be identical: if
+     the offset is the larger one a strip of scrolling content shows between them.
+     One custom property feeds both so they cannot drift. min/max-width rather than
+     width because the auto table layout treats a plain width as a suggestion and
+     shrank this column to less than the offset. Tune --pin alone if "Day" ever
+     needs more room. */
+  .log-tbl { --pin: 52px; }
   .log-tbl th:first-child,  .log-tbl td:first-child,
   .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) { position: sticky; z-index: 1; }
-  .log-tbl th:first-child,  .log-tbl td:first-child  { left: 0;    width: 52px; }
-  .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) { left: 52px; border-right: 1px solid #ece8f2; }
+  .log-tbl th:first-child,  .log-tbl td:first-child {
+    left: 0;
+    min-width: var(--pin);
+    max-width: var(--pin);
+  }
+  .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) {
+    left: var(--pin);
+    border-right: 1px solid #ece8f2;
+  }
   /* The row carries the colour (blood, ovulation, empty); the cell borrows it,
      or the scrolling columns would show through from underneath. */
   .log-tbl td:first-child, .log-tbl td:nth-child(2)  { background: inherit; }
@@ -879,6 +893,8 @@ function entryScreenHTML(cycles) {
   const saved = _savedNote
     ? `<div class="saved-note">Saved to ${escHTML(dayLabel(_savedNote.iso))} (${escHTML(_savedNote.action)}).` +
       (_staleInfo ? ' The sheet could not be re-read afterwards, so the list below is older than your entry.' : '') +
+      (_savedNote.warn && _savedNote.warn.length
+        ? ' It saved, but ' + escHTML(_savedNote.warn.join(' Also, ')) + ' Worth a look at the sheet.' : '') +
       `</div>`
     : '';
 
@@ -1058,7 +1074,16 @@ async function saveEntry(iso) {
     // Re-read rather than patch the copy in memory: the safety verdict is
     // derived from the sheet, and a backdated write moves it.
     _openDate = null;
-    _savedNote = { iso: iso, action: res.action || 'saved' };
+    // The write can succeed and still have something to say. ca5a added two such
+    // fields server-side and neither was read here — a warning nobody reads is a
+    // warning that does not exist.
+    const warn = [].concat(
+      res.unreadableDates ? ['the sheet has date cells this app cannot read, so a new row ' +
+                             'may not be in date order: ' + res.unreadableDates.join(', ')] : [],
+      res.textNotStored   ? ['the note may have been stored as a formula rather than as text: ' +
+                             res.textNotStored.join('; ')] : []);
+    if (warn.length) console.warn('Write warning:', warn);
+    _savedNote = { iso: iso, action: res.action || 'saved', warn: warn };
     setSaveStatus('Saved. Reloading…', 'good');
     loadData();
   } catch (e) {

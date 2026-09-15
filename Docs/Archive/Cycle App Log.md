@@ -909,3 +909,75 @@ on the two cells borrows the row's colour, which needed one new base rule — `t
 { background: #fff }` — placed before the `.row-*` rules so those still win.
 
 All six self-checks PASS.
+
+### ca5a addendum 2 — the formula note, attempts two and three
+
+Both failed live, same symptom each time (`expected "=1+1", got "2"`):
+
+- **`setNumberFormat('@')` + `flush()` before the write.** `setValues()` parses the input
+  first and applies the format to the *result*. The plain-text behaviour people know from
+  typing into a cell lives above the API.
+- **`setRichTextValue()`.** Parsed on the way in as well.
+
+Conclusion: the `SpreadsheetApp` write API has no literal mode, and there was no fourth
+trick worth guessing at. The Sheets API does have one — `valueInputOption: RAW` is documented
+as storing the value as-is, unparsed — so the text columns are now written a second time,
+on their own, through the **advanced Sheets service**, after the `setValues()` that would
+otherwise overwrite them. This needs Services → + → Google Sheets API switched on in the
+editor, and a re-authorisation.
+
+The whole row cannot use RAW: Temp would land as the text "97.11" instead of a number and
+the Date object would not serialise. Hence the two-step write.
+
+**A warning nobody reads is a warning that does not exist.** Checking how the app surfaced
+`unreadableDates` — added earlier in ca5a with the comment *"never swallowed — the app shows
+it"* — turned up that nothing in `index.html` ever read the field. The comment was wrong.
+Both it and the new `textNotStored` are now read in the save handler, logged with
+`console.warn`, and appended to the "Saved to …" line the dashboard shows after a write.
+
+All six self-checks PASS.
+
+### ca5a addendum 3 — two write channels, one of them buffered
+
+Run four was clean (no token rejections, no 404s) and reported no `textNotStored`, so the
+RAW write ran without throwing and the Sheets advanced service was enabled — and the note
+still read back `2`. That ruled out every parsing theory: the RAW write was not the thing
+failing.
+
+`SpreadsheetApp` buffers its writes; the advanced Sheets service goes straight to the
+backend. The RAW write was landing first and the buffered `setValues()` was then flushing
+over the top of it with the parsed formula. `SpreadsheetApp.flush()` between the two is the
+fix.
+
+A read-back on the same channel now follows the RAW write, and any mismatch is reported as
+`textNotStored: sent "…", sheet kept "…"`. After four runs disagreeing with documented
+behaviour, the endpoint reports what actually landed rather than trusting the write.
+
+**Two defects in the checks themselves, same root cause — assertions that hide *why*:**
+
+- `is(fl.ok === true && fl.action, …)` collapsed a server error to a bare `false`. Replaced
+  with `wrote()`, which prints the whole reply on failure and `textNotStored` /
+  `unreadableDates` on success.
+- The bad-request loop scored any `ok === false` as a pass. Run four printed *"Date sent as
+  a value is refused (no-access)"* as an **ok** — the token had been intermittently rejected
+  mid-deploy and the check called that a pass. It now names the error it expects.
+
+### addendum 4 — the gap between the pinned columns
+
+Mike, on the phone: "There is a gap between day and date so when I scroll
+horizontally I can see data between them."
+
+The sticky rules pinned column 2 at `left: 52px` and gave column 1 `width: 52px`.
+The table is `table-layout: auto`, where a `width` on a cell is a suggestion the
+browser is free to ignore — and it did: "Day" is one or two digits, so the column
+rendered narrower than 52px. Column 2 stayed 52px in. The uncovered strip between
+them is where the scrolling columns showed through.
+
+Fixed twice over. `min-width`/`max-width` instead of `width`, which auto layout
+does honour, so the column really is the width it claims. And both numbers now
+come from one `--pin` custom property on `.log-tbl`, so the offset and the width
+cannot drift apart again — which is the actual defect, since the previous comment
+already warned that the two had to agree and that warning did not stop it.
+
+Worth naming: the comment was right and still lost. A note telling the next person
+to keep two numbers in step is weaker than not having two numbers.

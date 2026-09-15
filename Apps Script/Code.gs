@@ -175,18 +175,37 @@ var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude'];
 
 // setValues() enters a string the way a person typing it would, so Sheets parses
 // it: a Note of '=1+1' becomes a formula and the text is lost (the live ca5a
-// checks read it back as '2' twice). Two fixes were tried against the real sheet
-// and both failed: a leading apostrophe (a convention of the typing UI, not of the
-// API) and a plain-text number format on the cell (setValues parses first and
-// formats the result). A RichTextValue is text by construction — there is nothing
-// for Sheets to parse — so the text columns are written again, on their own, after
-// the row write that would otherwise overwrite them.
+// checks read it back as '2' three times). THREE fixes were tried against the real
+// sheet and all three failed — recorded so none is tried again:
+//   1. a leading apostrophe          (a convention of the typing UI, not of the API)
+//   2. setNumberFormat('@') first     (setValues parses, THEN formats the result)
+//   3. setRichTextValue()            (also parsed on the way in)
+// The SpreadsheetApp write API has no literal mode. The Sheets API does:
+// valueInputOption RAW is documented as storing the value as-is, unparsed. So the
+// text columns are written a second time, on their own, through the advanced Sheets
+// service, after the setValues() that would otherwise overwrite them.
+//
+// This needs the Sheets advanced service switched on in the editor (Services → +
+// → Google Sheets API). If it is off, the reply says so rather than quietly
+// storing a formula — see textNotStored below.
 //
 // Note is the only free-text column — every other column the app writes is a
 // flag, a number, a time, or one of a fixed list — and it is the only one whose
 // parsing we have to switch off. Temp and Time rely on that same parsing to land
 // as a number and a time, so this must stay a list, not a blanket.
 var TEXT_COLS = ['Note'];
+
+// 0-based column index to an A1 letter: 0 -> A, 25 -> Z, 26 -> AA.
+function a1Col(i) {
+  var out = '';
+  for (i = i + 1; i > 0; i = Math.floor((i - 1) / 26)) out = String.fromCharCode(65 + (i - 1) % 26) + out;
+  return out;
+}
+
+// A tab name may contain spaces or an apostrophe, and A1 notation needs it quoted.
+function quoteSheet(name) {
+  return "'" + String(name).split("'").join("''") + "'";
+}
 
 function writeRow(date, values, del) {
   var ss    = SpreadsheetApp.openById(SHEET_ID);
@@ -266,16 +285,34 @@ function writeRow(date, values, del) {
   // Every text column on the row, not only the ones this request patched: the write
   // above re-enters the whole row, so a Note already holding '=1+1' would be turned
   // into a formula by a save of nothing but a temperature.
+  // SpreadsheetApp buffers its writes; the advanced service goes straight to the
+  // backend. Without this the setValues() above lands AFTER the RAW write below
+  // and puts the parsed formula back — which is what the fourth live run showed.
+  SpreadsheetApp.flush();
+
+  var unstored = [];
   for (var j = 0; j < TEXT_COLS.length; j++) {
     var ta = cols.indexOf(TEXT_COLS[j]);
     if (ta < 0) continue;
     var txt = String(cur[ta] == null ? '' : cur[ta]);
-    if (txt === '') continue;   // newRichTextValue() will not take an empty string
-    sheet.getRange(row, ta + 1)
-         .setRichTextValue(SpreadsheetApp.newRichTextValue().setText(txt).build());
+    if (txt === '') continue;   // setValues already stored the blank correctly
+    var range = quoteSheet(SHEET_NAME) + '!' + a1Col(ta) + row;
+    try {
+      Sheets.Spreadsheets.Values.update({ values: [[txt]] }, SHEET_ID, range,
+        { valueInputOption: 'RAW' });
+      // Read back on the same channel. Four live runs have now disagreed with what
+      // the write API is documented to do, so this reports what actually landed
+      // instead of trusting it — the app shows the reply.
+      var back = Sheets.Spreadsheets.Values.get(SHEET_ID, range, { valueRenderOption: 'UNFORMATTED_VALUE' });
+      var got  = back && back.values && back.values[0] ? String(back.values[0][0]) : '';
+      if (got !== txt) unstored.push(TEXT_COLS[j] + ': sent "' + txt + '", sheet kept "' + got + '"');
+    } catch (e) {
+      unstored.push(TEXT_COLS[j] + ': ' + e.message);
+    }
   }
 
   var out = { ok: true, action: action, date: date, row: row };
   if (odd.length) out.unreadableDates = odd;   // never swallowed — the app shows it
+  if (unstored.length) out.textNotStored = unstored;   // ditto: a note may be a formula
   return out;
 }
