@@ -719,3 +719,62 @@ ca7, ca7a and ca4 were all sitting unpushed. Mike's phone was showing a working 
 was broken, which is why nothing looked wrong. The push took Pages from ca3 to ca4a in one jump — cache, staleness
 banner and safety engine all arriving together — and Mike confirmed all of it live on 2026-09-15. Worth remembering
 at the next checkpoint: "it works on my phone" says nothing about `HEAD` unless someone checks what is deployed.
+
+## ca5 — the catch-up entry form, and the first write (2026-09-15, commits dc559d3, 8446122, db5a8ee)
+
+**What shipped.** The app can now write to the sheet. `doPost` in `Apps Script/Code.gs` is the only writer: it
+checks `body.t` against `WRITER_TOKEN` **server-side** (the hidden Log tab is cosmetic; this is the part that
+holds), takes a `LockService` script lock, and read-patch-writes one dated row — the named columns change, every
+column the form never mentioned survives untouched, including the `cervix: …` text ca2 folded into the Note. A
+date with no matching row is inserted **before the first later-dated row**, not appended, because the read path
+assumes strictly ascending dates. `render()` gained a second exit for `_tab === 'log' && _role === 'writer'`,
+which destroys both charts rather than leaving them pointing at a canvas no longer in the page. The log table
+gained the four columns ca3a said made an entry look dropped: Flow, Position, Quality, Exclude.
+
+**Proved live, not just offline.** `Tools/verify-proxy.js` grew a write section that runs last, against a
+sentinel date (`2026-03-24`) that precedes every migrated row and every Cycle Start, so the adapter gives it no
+Day number and it cannot reach a cycle, a count or a verdict. It confirmed on the real sheet: the reader token
+is refused (`read-only`), a wrong token and no token are refused (`no-access`), a malformed date / an unknown
+column / `Date` sent as a value are all refused before anything is written, the backdated row lands in date
+order, a **second** write to the same date `updated` rather than duplicating — which is what makes the app's
+retry safe after Google's `/exec` redirect 404s — untouched columns survived, and the sentinel was deleted and
+the row count restored. All checks passed. ca5's stated first unknown, whether a POST from GitHub Pages can
+reach Apps Script at all, is answered: yes, with `Content-Type: text/plain;charset=utf-8`, which keeps it a
+CORS *simple request*. Apps Script cannot answer a preflight, so this is not a style choice.
+
+**Then Mike used it, and it lied to him.** A save reached the sheet and the screen said
+*"could not reach the sheet. Showing saved data from Sep 15, 2026 10:33 AM."* Root cause: `saveEntry` clears
+`_openDate`, shows "Saved. Reloading…", and calls `loadData()`. When that reload fails, `failLoad` re-renders
+from the **cache** — which wipes the save status and shows rows that predate the write. A write that reached the
+sheet was pixel-for-pixel identical to one that did not. Fixed with `_savedNote`, a green line above the form
+that survives the re-render, names the day and the action, and when `_staleInfo` is set says so out loud: *the
+sheet could not be re-read afterwards, so the list below is older than your entry.* The Apps Script Executions
+log settled the diagnosis: `doPost` 10:34:37 (1.902 s) and `doGet` 10:34:44 (1.575 s) both Completed, and the
+failing read appears **nowhere** — it never reached Google. A `/exec` redirect 404, the same flake
+`verify-proxy` has had a retry ladder for since ca3. The read path had none. It does now: two retries on the
+fast-failing `onerror` path (800 ms, 1600 ms). The 20-second timeout is deliberately *not* retried — that is a
+different failure and `selfRefresh` already owns it.
+
+**"Everything is incredibly slow. It used to be lightning fast."** Not a regression in this slice and not
+fixable in the app: ca3 replaced the fast gviz endpoint with an Apps Script proxy, and `SpreadsheetApp` plus
+cold start costs 0.3–3.3 s per execution — the Executions log shows exactly that, all Completed. What was fixable
+is that the user stared at an empty screen for all of it. `bootFromCache()` now draws the saved copy before the
+read is even sent. The one thing it must **not** draw is the safety verdict: ca4's rule is that a stale "Safe"
+is worse than no answer, so `_provisional` forces the card to "Checking…" until a live read lands, and clears in
+both `_sheetCallback` and `failLoad`. `render-selfcheck` gained a section that asserts a provisional render
+shows no Safe/Unsafe verdict, still draws the rest of the dashboard, **and** that the verdict comes back once the
+flag clears — a flag that never cleared would be a dashboard stuck on Checking forever.
+
+**Note on the commits.** `deploy.bat` committed this slice as three "Update dashboard" commits rather than one
+named one. The README's one-slice-one-commit rule lost to the deploy path; the range is `2a7352f..db5a8ee` and
+ca5a reviews that, not a single hash.
+
+**Not built.** There is still no delete in the app. `doPost` supports `op: 'delete'` but it exists so
+`verify-proxy` can put the sheet back as it found it — one stray tap removing a day is worse than a blank row.
+Clearing a day's Temp **and** Time and saving is the supported way to undo a wrong reading (`entryDiff` sends a
+cleared field as an explicit clear; a temp-less row saves, but a time with no temp is refused). A real delete
+affordance, with its own confirmation, belongs with ca6's write queue.
+
+**Verification.** All six self-checks PASS: adapter, safety, staleness, render, migrate-sheet, entry.
+`verify-proxy` re-run against the real sheet, all checks passed. Mike confirmed live on his phone that the save
+lands. Deployed.
