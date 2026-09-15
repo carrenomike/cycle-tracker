@@ -3,10 +3,11 @@
 //
 //   node Tools/adapter-selfcheck.js
 //
-// The adapter is what lets ca3 be a transport change: it synthesises the Day
-// and Cycle fields the new sheet no longer has, so the twenty-odd downstream
-// readers of those two fields keep working untouched. It is extracted from
-// index.html rather than copied, so this cannot drift from the shipped code.
+// The adapter synthesises the Day number the new sheet no longer carries and
+// normalises its three yes/no columns. It is extracted from index.html rather
+// than copied, so this cannot drift from the shipped code. (ca4 removed the
+// Cycle half of the synthesis — the rules read Flow and Ovulation directly
+// now, and Tools/safety-selfcheck.js covers them.)
 //
 // Tools/verify-proxy.js checks the same adapter against the real sheet; this
 // one covers the edges real data may not contain (a DST crossing, a row before
@@ -34,17 +35,17 @@ const got = adaptRows([
   row('2026-11-06', '', '', '', 'TRUE'),
   row('2026-11-07', 'maybe', '', ''),       // not a yes/no value — warns, reads as unset
   row('bad-date', '', '', ''),              // skipped, with a warning
-]).map(r => [r.Date, r.Day, r.Cycle, r.Exclude].join('|'));
+]).map(r => [r.Date, r.Day, r.Flow || '', r.Ovulation, r.Exclude].join('|'));
 
 const want = [
-  'Mar 24|||',
-  'Mar 25|1|Blood|',
-  'Mar 26|2||',
-  'Mar 29|5||',
-  'Apr 9|16|Ovulation|',
-  'Nov 5|1||',
-  'Nov 6|2||TRUE',
-  'Nov 7|3||',
+  'Mar 24||||',
+  'Mar 25|1|bleeding||',
+  'Mar 26|2|spotting||',
+  'Mar 29|5|||',
+  'Apr 9|16||TRUE|',
+  'Nov 5|1|||',
+  'Nov 6|2|||TRUE',
+  'Nov 7|3|||',
 ];
 
 console.log(got.join('\n'));

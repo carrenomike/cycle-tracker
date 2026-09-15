@@ -79,6 +79,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 3a | `slice-ca3a-checkpoint-review.md` | Checkpoint review of `1065c1e..HEAD` — the adapter, the schema-spelling invariants, the proxy | 3 |
 | 3b | `slice-ca3b-checkpoint-review.md` | Checkpoint review of `3ee13e2..HEAD` (ca2a) — `cell()` is on every column’s read path | 1 |
 | 4 | `slice-ca4-safety-engine.md` | Real safety rule + honest status cards on the existing dashboard | 3 |
+| 4a | `slice-ca4a-checkpoint-review.md` | Checkpoint review of `4050005..HEAD` (ca7a + ca4) — the deleted `Cycle` field and its ~20 readers | 4 |
 | 5 | `slice-ca5-catch-up-entry.md` | Writer-only Log tab, catch-up list newest first | 4 |
 | 6 | `slice-ca6-write-queue.md` | Local unsent queue + persistent banner, sheet stays source of truth | 5 |
 | 7 | `slice-ca7-viewer-staleness.md` | Viewer cache, dismissible staleness banner, 3-day expiry | 3 |

@@ -7,9 +7,13 @@
 // Pass the sheet ID to also confirm the sheet itself is private to the world.
 //
 // Checks the four rejection paths, then pulls the real rows through the SAME
-// adapter the app uses — extracted out of index.html rather than copied, so a
-// later edit to one cannot quietly drift from the other — and asserts the
-// dashboard numbers still come out the way the old sheet gave them.
+// adapter and the SAME safety engine the app uses — both extracted out of
+// index.html rather than copied, so a later edit to one cannot quietly drift
+// from the other — and asserts the dashboard numbers still come out the way
+// the old sheet gave them, including every cycle's safe-window opening.
+//
+// This is the only check that sees the real temperatures; the offline
+// Tools/safety-selfcheck.js covers the edges the real data does not contain.
 
 const fs = require('fs');
 const path = require('path');
@@ -35,6 +39,12 @@ const EXPECT = {
   // rows carry a time. A floor means the recovery cannot quietly regress while
   // new entries can still add to it.
   minTimes: 88,
+  // The cycle day each cycle's post-ovulation safe window opens on, recomputed
+  // in integer hundredths against the migrated data on 2026-09-13. Cycles 1-4
+  // reproduce the values the 2026-08-26 prototype gave; cycle 5 opens at its
+  // day-23 marker + 4 because three-over-six never fires in it. A change here
+  // is either a rule that broke or history being rewritten — never a shrug.
+  opensOn: [24, 22, 30, 37, 27],
 };
 
 let failed = 0;
@@ -49,13 +59,17 @@ const atLeast = (actual, floor, what) =>
     ? pass(`${what}: ${JSON.stringify(actual)} (floor ${JSON.stringify(floor)})`)
     : fail(`${what}: expected at least ${JSON.stringify(floor)}, got ${JSON.stringify(actual)}`);
 
-function loadAdapter() {
+function block(name, returns) {
   const src = fs.readFileSync(INDEX, 'utf8');
-  const a = src.indexOf('// >>> ADAPTER');
-  const b = src.indexOf('// <<< ADAPTER');
-  if (a < 0 || b < 0) throw new Error('Could not find the ADAPTER markers in index.html');
-  return new Function(`${src.slice(a, b)}; return adaptRows;`)();
+  const a = src.indexOf(`// >>> ${name}`);
+  const b = src.indexOf(`// <<< ${name}`);
+  if (a < 0 || b < 0) throw new Error(`Could not find the ${name} markers in index.html`);
+  return new Function(`${src.slice(a, b)}; return ${returns};`)();
 }
+
+const loadAdapter = () => block('ADAPTER', 'adaptRows');
+const loadSafety  = () => block('SAFETY',
+  '{ isOv, isBleeding, detectOvDay, threeOverSixDay, safeWindowOpensOn, openingBleedEnd }');
 
 // Apps Script redirects /exec to a second Google host, and that second hop
 // intermittently 404s or 5xxs under back-to-back requests. Retry a few times,
@@ -191,15 +205,25 @@ function splitCycles(rows) {
   const cycles = splitCycles(adapted);
   is(cycles.length, EXPECT.day1.length, 'cycle count');
   is(cycles.map(c => c[0].Date), EXPECT.day1, 'Day-1 dates');
-  is(cycles.map(c => {
-    const ov = c.find(r => r.Cycle === 'Ovulation');
-    return ov ? parseInt(ov.Day) : null;
-  }), EXPECT.ovDays, 'ovulation days');
+  const S = loadSafety();
+  is(cycles.map(S.detectOvDay), EXPECT.ovDays, 'ovulation days');
 
-  const spottingAsBlood = adapted.filter(r => r.Flow === 'spotting' && r.Cycle === 'Blood');
+  const spottingAsBlood = adapted.filter(r => r.Flow === 'spotting' && S.isBleeding(r));
   spottingAsBlood.length
     ? fail(`${spottingAsBlood.length} spotting row(s) became 'Blood'`)
     : pass("no spotting row was turned into 'Blood'");
+
+  console.log('\n--- THE SAFETY ENGINE ON THE REAL DATA ---');
+  // The whole point of the slice: the same engine the phone runs, on the same
+  // rows the phone reads, reproducing the hand-checked openings.
+  is(cycles.map(S.safeWindowOpensOn), EXPECT.opensOn, 'safe window opens on cycle day');
+  // Take the marker away and no cycle may open a window at all, however
+  // convincing its temperatures are. Three-over-six delays, it never triggers.
+  const unmarked = cycles.map(c => c.map(r => Object.assign({}, r, { Ovulation: '' })));
+  is(unmarked.map(S.safeWindowOpensOn), cycles.map(() => null),
+     'with the ovulation marker removed no window ever opens');
+  console.log(`  info  three-over-six fires on: ${JSON.stringify(cycles.map(S.threeOverSixDay))}`);
+  console.log(`  info  opening bleed run ends on: ${JSON.stringify(cycles.map(S.openingBleedEnd))}`);
 
   const start = cycles[cycles.length - 1][0]._date;
   const now = new Date();

@@ -104,3 +104,21 @@ backdated entry immediately moves a verdict that is already correct.)
   name every `NEW_COLS` column, so the first two cannot drift apart.
 - **`cell()` decides a Date's format from the column name, not the value.** If this slice adds a second
   time-of-day column, add its name to `TIME_COLS` in `Code.gs` or it will arrive as `1899-12-30`.
+
+
+## Added by ca4 (2026-09-15)
+
+- **The safety rule now reads `Flow` and `Ovulation` straight off the row.** ca3's synthesised `Cycle` column is
+  deleted. `isBleeding()` matches `Flow` trimmed and lowercased against exactly `bleeding`, and `isOv()` matches
+  `Ovulation === 'TRUE'`. Write those literal values — a `Bleeding` or a `yes` lands in the sheet, renders in the
+  table, and is silently invisible to the safety engine. This is the entry screen's sharpest failure mode.
+- **Spotting must never be written as `bleeding`.** The opening-bleed-run rule walks consecutive bleeding days
+  from Day 1; a spotting day recorded as bleeding extends the Safe run past the end of the period.
+  `verify-proxy` fails if any spotting row reads as bleeding.
+- **The log table's Phase column is now `phaseTag(r)`** — display only, Ovulation winning a collision. Adding
+  `Flow` as its own column (the ca3a note above) is still outstanding and is what makes a spotting-only day
+  visible.
+- **Backdating moves a verdict.** The engine is date-driven and re-derives on every render, so a backdated
+  `Cycle Start`, `Flow` or `Ovulation` write immediately changes the dashboard's Safe/Unsafe. That is the
+  intended behaviour, but it means a mis-keyed backdated entry is a safety-visible bug, not a cosmetic one —
+  the entry screen's confirmation step should show what it is about to write.

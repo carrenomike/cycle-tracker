@@ -292,42 +292,164 @@ function splitCycles(rows) {
   return cycles;
 }
 
+// ── Cycle facts and the safety engine ──────────────────────────
+
+// >>> SAFETY — extracted and executed verbatim by Tools/safety-selfcheck.js and
+// Tools/verify-proxy.js, which match on these two marker lines. Keep them, and
+// keep this block free of anything that only exists in a browser.
+
 // Every column a logged day can carry. A row that has none of them is empty.
 // ca2's columns are listed too — without them a spotting-only or
 // cervix-position-only day (which ca5 can write) would read as an empty row.
 // Keep this list complete: a column missing from it makes real days look blank.
 // Tools/adapter-selfcheck.js asserts it covers every column the sheet carries.
-// Ovulation is listed in its own right, not left to the synthesised r.Cycle —
-// ca4 deletes that synthesis, and it must not take a column with it.
 function hasData(r) {
   return r.Temp || r.Time || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
          r['Cervical Mucus'] || r['Cervix Position'] || r.Breasts ||
-         r['Cycle Start'] || r.Ovulation || r.Cycle || r.Note;
+         r['Cycle Start'] || r.Ovulation || r.Note;
 }
 
+// The two facts every rule below is built from, read straight off the sheet's
+// own columns. ca3's synthesised r.Cycle is gone, and with it any chance of a
+// display string and a safety rule disagreeing about what a day was.
+// Spotting is deliberately NOT bleeding: the opening-bleed-run rule would
+// otherwise swallow the spotting days that trail cycles 3 and 4.
+const isOv       = r => r.Ovulation === 'TRUE';
+const isBleeding = r => String(r.Flow || '').trim().toLowerCase() === 'bleeding';
+
+// The tag the charts and the log table print for a day. Display only — no rule
+// consults it. Ovulation wins a collision, exactly as ca3's adapter did.
+function phaseTag(r) { return isOv(r) ? 'Ovulation' : isBleeding(r) ? 'Blood' : ''; }
+
+// A reading the rules may use: it exists and was not flagged Exclude (any
+// non-empty value excludes — ca2 writes TRUE, the old sheet wrote Y). Six
+// migrated rows carry no temperature at all; a temp-less day is skipped, never
+// read as a zero and never counted as one of the six or the three.
+const isUsableTemp = r => !!r.Temp && !(r.Exclude || '').trim();
+
+// Temperatures compare in integer hundredths, never in floating point:
+// 97.88 + 0.1 is 97.97999999999999, so 97.98 tests as ABOVE a coverline it
+// actually ties — which opened cycle 4's window on day 36 instead of 37, a day
+// early on the unsafe side. A tie must never clear the coverline.
+const cents = t => Math.round(parseFloat(t) * 100);
+
+// Bleeding / Follicular / Luteal only. Ovulation is never a phase — it is only
+// ever known days after the fact.
 function detectPhase(cycle) {
-  // Look at the last five *logged* rows. The sheet can carry blank pre-created
-  // future rows at the end; slicing the raw array would read only blanks.
+  // Look at the last five *logged* rows. The sheet can carry blank rows at the
+  // end; slicing the raw array would read only blanks.
   const last5 = cycle.filter(hasData).slice(-5);
-  if (last5.some(r => r.Cycle === 'Blood')) return 'menstrual';
-  if (last5.some(r => r.Cycle === 'Ovulation')) return 'ovulation';
-  // Luteal only if an Ovulation marker has been logged earlier this cycle
-  if (cycle.some(r => r.Cycle === 'Ovulation')) return 'luteal';
+  if (last5.some(isBleeding)) return 'bleeding';
+  // Luteal only if an Ovulation marker has been logged earlier this cycle.
+  if (cycle.some(isOv)) return 'luteal';
   return 'follicular';
 }
 
 // Ovulation row for a cycle: the hard manual marker, or nothing. Ovulation is
 // never inferred — not from mucus, not from temperature, not from anything.
-// A cycle with no marker has no ovulation day. detectOvDay is the day-number
-// view of the same answer.
 function detectOvRow(cycle) {
-  return cycle.find(r => r.Cycle === 'Ovulation') || null;
+  return cycle.find(isOv) || null;
 }
 
 function detectOvDay(cycle) {
   const ov = detectOvRow(cycle);
   return ov ? parseInt(ov.Day) : null;
 }
+
+// Coverline in hundredths: the max of the six usable temps before the ovulation
+// marker, plus 0.1°F. Null until the marker exists — before it there is no
+// coverline anywhere in the app. The pre-ovulation window is taken wider than
+// six rows on purpose, so excluded readings are backfilled by earlier days.
+function coverlineCents(cycle) {
+  const ovIdx = cycle.findIndex(isOv);
+  if (ovIdx < 0) return null;
+  const pre = cycle.slice(0, ovIdx).filter(isUsableTemp).slice(-6).map(r => cents(r.Temp));
+  return pre.length ? Math.max(...pre) + 10 : null;
+}
+
+// Degrees, for the charts and the cards. Every comparison uses the cents.
+function calcCoverline(cycle) {
+  const c = coverlineCents(cycle);
+  return c == null ? null : c / 100;
+}
+
+// Index of the last row that actually has logged data.
+function lastDataIndex(cycle) {
+  for (let i = cycle.length - 1; i >= 0; i--) {
+    if (hasData(cycle[i])) return i;
+  }
+  return cycle.length - 1;
+}
+
+// How far the data is behind the calendar. Cycle day keeps advancing every
+// midnight whether or not anything was logged, so this gap is the reader’s only
+// clue that the verdict above it is running on old observations.
+function unloggedDays(cycle, dayNumber) {
+  const last = parseInt(cycle[lastDataIndex(cycle)].Day);
+  return isNaN(last) ? 0 : Math.max(0, dayNumber - last);
+}
+
+// The opening bleed run: Day 1 through the last CONSECUTIVE bleeding day. Keyed
+// to the opening run specifically, so mid-cycle breakthrough bleeding can never
+// flip a fertile day to Safe. A missing day ends the run — an unlogged day is
+// not evidence of bleeding.
+function openingBleedEnd(cycle) {
+  let end = 0;
+  for (const r of cycle) {
+    if (parseInt(r.Day) !== end + 1 || !isBleeding(r)) break;
+    end += 1;
+  }
+  return end;
+}
+
+// Three-over-six: three consecutive usable temps above a coverline drawn from
+// the six usable temps immediately BEFORE the first of them, where the third
+// clears that line by at least 0.2°F. The baseline six and the three highs must
+// not overlap — that overlap was a real bug in the prototype and made the rule
+// never fire at all. Returns the cycle day of the third high, or null.
+function threeOverSixDay(cycle) {
+  const u = cycle.filter(isUsableTemp);
+  for (let i = 6; i + 2 < u.length; i++) {
+    const cl = Math.max(...u.slice(i - 6, i).map(r => cents(r.Temp))) + 10;
+    const h  = u.slice(i, i + 3).map(r => cents(r.Temp));
+    if (h[0] > cl && h[1] > cl && h[2] >= cl + 20) return parseInt(u[i + 2].Day);
+  }
+  return null;
+}
+
+// The day the post-ovulation window opens: the LATER of the manual marker + 4
+// and the three-over-six fire day. No marker means it never opens — three-over-
+// six may only delay the opening, never trigger it on its own. Without that the
+// app declared a false "Safe" on cycle 5 day 12 (2026-08-26).
+function safeWindowOpensOn(cycle) {
+  const ovDay = detectOvDay(cycle);
+  if (ovDay == null) return null;
+  const fire = threeOverSixDay(cycle);
+  return fire == null ? ovDay + 4 : Math.max(ovDay + 4, fire);
+}
+
+// Two states only: Safe / Unsafe. Unsafe absorbs every kind of unknown.
+// There is no pre-ovulation safe window other than the opening bleed run: ca1’s
+// `day < ovDay - 6` branch could never fire on a live cycle, because the marker
+// only exists once ovulation has already passed. It is deliberately not carried
+// over — the app must not look like it has a window it does not have.
+function safetyVerdict(cycle, dayNumber) {
+  const bleedEnd = openingBleedEnd(cycle);
+  if (bleedEnd > 0 && dayNumber <= bleedEnd) {
+    return { safe: true, hint: `Opening bleed run — Day 1 to Day ${bleedEnd}` };
+  }
+  const ovDay = detectOvDay(cycle);
+  const opens = safeWindowOpensOn(cycle);
+  if (opens != null && dayNumber >= opens) {
+    return { safe: true, hint: `${dayNumber - ovDay} days past ovulation (Day ${ovDay})` };
+  }
+  if (ovDay == null) {
+    return { safe: false, hint: 'Ovulation not yet confirmed this cycle' };
+  }
+  const n = opens - dayNumber;
+  return { safe: false, hint: `Safe in ${n} day${n !== 1 ? 's' : ''} — post-ovulation wait` };
+}
+// <<< SAFETY
 
 // ── Moon phase ─────────────────────────────────────────────────────────────
 // Pure date math against a known new moon — no API, no network, works offline.
@@ -372,29 +494,6 @@ function moonCell(row) {
   const lit = Math.round(m.illumination * 100);
   return `<span class="moon" title="${m.name} \u00b7 ${lit}% lit">${m.glyph}</span>` +
          `<span class="moon-name">${m.name}</span>`;
-}
-
-// Returns coverline (max of 6 pre-ovulation temps + 0.1°F), or null if no ovulation marked.
-function calcCoverline(cycle) {
-  const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
-  if (ovIdx < 0) return null;
-  // Pull from a wider window before ovulation so excluded rows are backfilled
-  // by earlier days, then keep the most recent 6 valid readings.
-  const preTemps = cycle
-    .slice(0, ovIdx)
-    .filter(r => r.Temp && !(r.Exclude || '').trim())
-    .slice(-6)
-    .map(r => parseFloat(r.Temp));
-  if (!preTemps.length) return null;
-  return parseFloat((Math.max(...preTemps) + 0.1).toFixed(2));
-}
-
-// Find the index of the last row that actually has logged data
-function lastDataIndex(cycle) {
-  for (let i = cycle.length - 1; i >= 0; i--) {
-    if (hasData(cycle[i])) return i;
-  }
-  return cycle.length - 1;
 }
 
 // ── Staleness ──────────────────────────────────────────────────────────────
@@ -478,7 +577,7 @@ function render(cycles) {
   const currentCoverline = calcCoverline(current); // null until ovulation is marked
 
   const phase      = detectPhase(current);
-  const phaseLabel = { menstrual:'Menstrual', follicular:'Follicular', ovulation:'Ovulation', luteal:'Luteal' }[phase];
+  const phaseLabel = { bleeding:'Bleeding', follicular:'Follicular', luteal:'Luteal' }[phase];
 
   const lengths  = past.map(c => c.length);
   const avg      = lengths.length ? Math.round(lengths.reduce((a,b) => a+b, 0) / lengths.length) : null;
@@ -502,8 +601,8 @@ function render(cycles) {
 
   // Once ovulation is confirmed, the luteal phase is a reliable ~14 days,
   // so predict from the ovulation day instead of the historical average.
-  const ovRow        = current.find(r => r.Cycle === 'Ovulation');
-  const ovDayNum     = ovRow ? parseInt(ovRow.Day) : null;
+  const ovRow        = detectOvRow(current);
+  const ovDayNum     = detectOvDay(current);
   const predictedLen = ovDayNum != null ? ovDayNum + 14 : avg;
   const fromOvulation = ovDayNum != null;
   const daysLeft     = predictedLen ? Math.max(0, predictedLen - dayNumber) : null;
@@ -520,28 +619,28 @@ function render(cycles) {
 
   const lastTempRow = [...current].reverse().find(r => r.Temp);
   const lastTemp    = lastTempRow ? parseFloat(lastTempRow.Temp).toFixed(2) : '—';
-  const aboveLine   = (lastTempRow && currentCoverline != null)
-    ? parseFloat(lastTempRow.Temp) > currentCoverline : null;
+  // An excluded reading still shows as the last temperature — it was taken — but
+  // it gets no above/below verdict, because Exclude means exactly “do not judge
+  // by this one”. Comparison is in hundredths so a tie reads as below. (ca3a)
+  const clCents     = coverlineCents(current);
+  const aboveLine   = (lastTempRow && isUsableTemp(lastTempRow) && clCents != null)
+    ? cents(lastTempRow.Temp) > clCents : null;
+  const unlogged    = unloggedDays(current, dayNumber);
 
   // ── Safe-sex status ──────────────────────────────────────────────────────
-  // Use only the hard Ovulation marker — never estimates from mucus data.
-  const ovDay = ovDayNum;
-  const isSafe = ovDay != null && dayNumber < ovDay - 6 || ovDay != null && dayNumber >= ovDay + 4;
+  // The whole rule lives in safetyVerdict() inside the SAFETY block, so the
+  // self-checks test the same code the phone runs. Only the hard Ovulation
+  // marker is ever consulted — never mucus, never a guess.
+  const verdict = safetyVerdict(current, dayNumber);
   let safeStatus, safeClass, safeHint;
-  if (isSafe) {
+  if (verdict.safe) {
     safeStatus = 'Safe';
     safeClass  = 'safe';
-    safeHint   = dayNumber >= ovDay + 4
-      ? `${dayNumber - ovDay} days past ovulation (Day ${ovDay})`
-      : `Ovulation window starts Day ${ovDay - 6}`;
+    safeHint   = verdict.hint;
   } else {
     safeStatus = 'Unsafe';
     safeClass  = 'unsafe';
-    safeHint   = ovDay == null
-      ? 'Ovulation not yet confirmed this cycle'
-      : dayNumber <= ovDay
-      ? `${ovDay - dayNumber} day${ovDay - dayNumber !== 1 ? 's' : ''} until ovulation (Day ${ovDay})`
-      : `Safe in ${(ovDay + 4) - dayNumber} day${(ovDay + 4) - dayNumber !== 1 ? 's' : ''} — post-ovulation wait`;
+    safeHint   = verdict.hint;
   }
 
   // Past the cutoff, show no verdict rather than a confident stale one. This
@@ -564,7 +663,9 @@ function render(cycles) {
       <div class="card">
         <div class="lbl">Cycle Day</div>
         <div class="val">${dayNumber}</div>
-        <div class="hint">Started ${current[0]?.Date || '—'}</div>
+        <div class="hint">Started ${current[0]?.Date || '—'}${unlogged
+          ? ` &middot; <span class="status-caution">${unlogged} day${unlogged !== 1 ? 's' : ''} unlogged</span>`
+          : ''}</div>
       </div>
       <div class="card">
         <div class="lbl">Current Phase</div>
@@ -765,12 +866,12 @@ function drawTimelineChart(cycles) {
   });
 
   const ptColors = allRows.map(r =>
-    r.Cycle === 'Blood'     ? '#e53935' :
-    r.Cycle === 'Ovulation' ? '#ab47bc' : '#1e88e5'
+    phaseTag(r) === 'Blood'     ? '#e53935' :
+    phaseTag(r) === 'Ovulation' ? '#ab47bc' : '#1e88e5'
   );
   const ptSizes = allRows.map((r, i) => {
     if (!r.Temp) return 0;
-    if (r.Cycle) return 3.5;
+    if (phaseTag(r)) return 3.5;
     // Isolated only if there's no data to connect to anywhere on either side
     // (gaps are bridged with a dashed line below, so a point only needs a
     // dot if it truly has nothing to connect to).
@@ -890,7 +991,7 @@ function drawTimelineChart(cycles) {
           const moon = moonPhase(r._date);
           return [
             moon ? `Moon: ${moon.glyph} ${moon.name}` : '',
-            r.Cycle ? `Phase: ${r.Cycle}` : '',
+            phaseTag(r) ? `Phase: ${phaseTag(r)}` : '',
             r['Cervical Mucus'] ? `Mucus: ${r['Cervical Mucus']}` : '',
             r['Cervix Texture'] ? `Cervix: ${r['Cervix Texture']}` : '',
             r.Breasts ? `Breasts: ${r.Breasts}` : '',
@@ -907,10 +1008,11 @@ function drawTimelineChart(cycles) {
 function buildLogRows(cycle) {
   return cycle.map(r => {
     const empty = !hasData(r);
-    const rowClass = r.Cycle === 'Blood' ? 'row-blood' : r.Cycle === 'Ovulation' ? 'row-ovul' : empty ? 'row-empty' : '';
-    const cycleTag = r.Cycle === 'Blood'
+    const tag      = phaseTag(r);
+    const rowClass = tag === 'Blood' ? 'row-blood' : tag === 'Ovulation' ? 'row-ovul' : empty ? 'row-empty' : '';
+    const cycleTag = tag === 'Blood'
       ? '<span class="tag tag-blood">Blood</span>'
-      : r.Cycle === 'Ovulation'
+      : tag === 'Ovulation'
       ? '<span class="tag tag-ovul">Ovulation</span>'
       : '';
     return `<tr class="${rowClass}">
@@ -941,7 +1043,7 @@ function drawOverlayChart(cycles) {
 
   // Ovulation band data: one entry per cycle that has a confirmed ovulation day
   const ovBands = cycles.map((cycle, i) => {
-    const ovIdx = cycle.findIndex(r => r.Cycle === 'Ovulation');
+    const ovIdx = cycle.findIndex(isOv);
     return ovIdx >= 0 ? { idx: ovIdx, color: colors[i % colors.length], datasetIndex: i } : null;
   }).filter(Boolean);
 
@@ -960,12 +1062,12 @@ function drawOverlayChart(cycles) {
     // Red dot for blood days, cycle color otherwise
     const ptColors = labels.map((_, j) => {
       const row = cycle[j];
-      return (row && row.Cycle === 'Blood') ? '#e53935' : colors[i % colors.length];
+      return (row && phaseTag(row) === 'Blood') ? '#e53935' : colors[i % colors.length];
     });
     const ptSizes = labels.map((_, j) => {
       const row = display[j];
       if (!row || !row.Temp) return 0;
-      if (cycle[j] && cycle[j].Cycle === 'Blood') return 3.5;
+      if (cycle[j] && phaseTag(cycle[j]) === 'Blood') return 3.5;
       // Isolated only if there's no data to connect to anywhere on either
       // side (gaps are always bridged with a dashed line below).
       const isIsolated = !data.slice(0, j).some(v => v != null) && !data.slice(j + 1).some(v => v != null);
@@ -1077,7 +1179,7 @@ function drawOverlayChart(cycles) {
             return cycles.map((c) => {
               const row = c[items[0].dataIndex];
               if (!row || !row.Temp) return '';
-              return `${row.Date}: ${parseFloat(row.Temp).toFixed(2)}°${row.Cycle ? ' (' + row.Cycle + ')' : ''}`;
+              return `${row.Date}: ${parseFloat(row.Temp).toFixed(2)}°${phaseTag(row) ? ' (' + phaseTag(row) + ')' : ''}`;
             }).filter(Boolean);
           },
         }
@@ -1208,11 +1310,10 @@ function showError(msg) { showMessage('Could not load data.', msg, true); }
 // matches on these two marker lines. Keep them, and keep this block free of
 // anything that only exists in a browser.
 //
-// The new sheet has no Day and no Cycle column; ca2 replaced them with a Date,
-// a Cycle Start flag, Flow and Ovulation. Rather than rewrite the twenty-odd
-// places downstream that read Day and Cycle, synthesise both here, at the parse
-// boundary, so this slice stays a transport change. ca4 deletes the Cycle half
-// when it rewrites those call sites against Flow and Ovulation directly.
+// The new sheet has no Day column; ca2 replaced it with a Date and a Cycle
+// Start flag, so the day number is synthesised here, at the parse boundary.
+// ca3 also synthesised a Cycle column; ca4 deleted it — every reader now goes
+// through isOv() / isBleeding() / phaseTag() in the SAFETY block instead.
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // A row the adapter throws away, or a yes/no column it cannot read, moves the
@@ -1260,14 +1361,6 @@ function adaptRows(rows) {
     // Rows before the first Cycle Start get no day number and are filtered out
     // below, exactly as unnumbered rows were before.
     row.Day = cycleStart ? String(Math.round((d - cycleStart) / 86400000) + 1) : '';
-    // Spotting is deliberately NOT 'Blood' — the old sheet never counted it as
-    // bleeding, and ca4's opening-bleed-run rule depends on that staying true.
-    if (row.Ovulation === 'TRUE' && r.Flow === 'bleeding') {
-      warn(`${r.Date}: marked both Ovulation and bleeding — it was read as Ovulation.`);
-    }
-    row.Cycle = row.Ovulation === 'TRUE' ? 'Ovulation'
-              : r.Flow === 'bleeding'    ? 'Blood'
-              : '';
     out.push(row);
   }
   return out;

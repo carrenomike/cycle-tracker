@@ -613,3 +613,57 @@ the silent failure that slice exists to prevent. It needs its own argument or an
 That last one is the ca7a finding most likely to bite: the cap was the right fix for a 165-line banner and is a
 trap for the next slice that reuses the list. Capping a display list is not the same decision as capping a
 *notification* list, and ca6 is about notifications.
+
+
+## ca4 — the safety engine (2026-09-15)
+
+The dashboard's safe-window arithmetic was a handful of inline expressions inside `render()`. It is now one
+marked block, `// >>> SAFETY` ... `// <<< SAFETY`, extracted and executed verbatim by `Tools/safety-selfcheck.js`
+and `Tools/verify-proxy.js` — the same technique ca3 used for the adapter and ca7 for staleness, so the checks
+cannot drift from the code the phone runs.
+
+**The rule, as shipped:** the opening bleed run (Day 1 through the last *consecutive* bleeding day) is Safe;
+everything after it is Unsafe until the post-ovulation window opens; the window opens on the **later** of the
+manual ovulation marker + 4 and the three-over-six fire day. **No marker means it never opens** — three-over-six
+may only delay an opening, never trigger one. Two states only, Unsafe absorbing every unknown.
+
+**Integer hundredths, everywhere.** `97.88 + 0.1` is `97.97999999999999` in floating point, so a reading of
+exactly 97.98 tested as *above* a coverline it actually ties. That is what opened cycle 4's window on day 36
+instead of 37 — a day early, on the unsafe side. Every temperature comparison now runs through
+`cents(t) = Math.round(parseFloat(t) * 100)`, and `safety-selfcheck` pins the tie case specifically.
+
+**Three-over-six's baseline must not overlap its own highs.** The prototype drew the coverline from the six temps
+before the *third* high, which meant the highs lifted their own line and the rule could never fire. The baseline
+is now the six usable temps before the **first** high. Temp-less rows (6 of the 165 migrated) and `Exclude` rows
+are skipped rather than read as zeros, so neither can be counted towards the six or the three.
+
+**The `Cycle` column is gone.** ca3 synthesised `r.Cycle` at the parse boundary so ca3 could stay a transport
+change; ca4 deleted it and rewrote every reader — timeline chart, tooltips, log table, overlay chart — against
+`isOv()` / `isBleeding()` / `phaseTag()`. With it went the adapter's Ovulation-and-bleeding collision warning
+(`phaseTag` resolves the collision the same way, in display code where it belongs) and with it any chance of a
+display string and a safety rule disagreeing about what a day was. `adapter-selfcheck`'s tuple now asserts
+`Flow`/`Ovulation` directly instead of the synthesised value.
+
+**Carried over deliberately as a deletion:** ca1's pre-ovulation `dayNumber < ovDay - 6` safe branch. It could
+never fire on a live cycle — the marker only exists once ovulation has already passed — so shipping it would
+make the app look like it has a window it does not have. Noted in a comment at `safetyVerdict` so it does not get
+"restored" later.
+
+**Two questions settled from ca3a:** an `Exclude`d reading still shows as Last Temp (it was taken) but gets no
+above/below-coverline verdict, because Exclude means exactly "do not judge by this one"; and `hasData` survived,
+minus its `r.Cycle` term.
+
+**The missed-Day-1 guard was specified and then reversed, in the same session.** The spec called for a status
+line reading "Period may have started — log to confirm" at cycle day >= 29 with unlogged days outstanding. Mike
+killed it on sight: cycles here often run to 37 days, so it would have fired most cycles and trained both readers
+to ignore the status line — the exact failure mode a warning exists to avoid. What survives is the unlogged-days
+count on the Cycle Day card in `status-caution` orange, which states a fact without guessing at a cause.
+`safety-selfcheck` now *fails* if either the wording or the `dayNumber >= 29` threshold reappears, and the
+slice file records the reversal so a later session does not "fix" the omission.
+
+**Verification.** `Tools/safety-selfcheck.js` is new and offline: opening-run edges (spotting is not bleeding, a
+missing day ends the run, mid-cycle breakthrough bleeding stays Unsafe), the coverline tie, a third high 0.19
+above the line, baseline/high non-overlap, temp-less and excluded rows, a cycle with its marker stripped, and the
+phase vocabulary (it greps `phaseLabel` for the absence of "Ovulation"). `verify-proxy` runs the same engine
+against the real sheet and asserts every cycle's opening — **d24 / d22 / d30 / d37 / d27, confirmed by Mike on
+2026-09-15** — plus a marker-stripped pass in which no cycle may open a window at all. All three self-checks PASS.

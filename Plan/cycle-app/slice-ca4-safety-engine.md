@@ -75,8 +75,7 @@ Carried intact from the scrapped wheel slice. These are settled; do not re-litig
 - **Status vocabulary is Bleeding / Follicular / Luteal only**, shown plainly and never qualified. **Ovulation is
   never a status** — it is only known days later. The "Current Phase" card loses its `Ovulation` value.
 - **"N days unlogged"** is surfaced whenever the data is behind, in a warning colour.
-- **Missed-Day-1 guard:** cycle day ≥ 29 **and** unlogged days > 0 → the status line reads
-  "Period may have started — log to confirm".
+- **Missed-Day-1 guard: REVERSED, not built** (Mike, 2026-09-15). Cycles here often run to 37 days, so a day-29 "Period may have started" prompt would cry wolf most cycles. The unlogged-days count on the Cycle Day card is the only staleness signal; the verdict is never forced. Tools/safety-selfcheck.js fails if the threshold comes back.
 - **Cycle day is date arithmetic** from ca2's `Cycle Start` flag. Never a lookup of the last logged row.
 - Expected safe-window openings against the real data, as a regression check: **d24 / d22 / d30 / d37 / d27**.
   Cycle 5 was `never` while it had no ovulation marker; with the day-23 marker and no three-over-six fire, it opens
