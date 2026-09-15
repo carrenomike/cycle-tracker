@@ -62,7 +62,8 @@ const env = {
   clearTimeout: () => {},
 };
 const api = new Function(...Object.keys(env),
-  `${script}\n; return { renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict };`
+  `${script}\n; return { renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
+       setProvisional: v => { _provisional = v; } };`
 )(...Object.values(env));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -119,6 +120,31 @@ console.log('\n--- A CYCLE WITH AN OVULATION MARKER ---');
   /Day \d+<\/td>/.test(html)
     ? pass('the history table prints an ovulation day')
     : fail('the history table prints no ovulation day — the ca4 `ovDay` bug is back');
+}
+
+console.log('\n--- THE CACHED COPY DRAWN BEFORE THE READ ANSWERS ---');
+{
+  // The saved copy is drawn first so the phone is not staring at a spinner for
+  // the 1-3s the Apps Script proxy takes. Everything on it may be a day or two
+  // out of date, which is fine for a chart and not fine for a verdict: a "Safe"
+  // the sheet would disagree with is the one wrong answer this app must not
+  // give. It has to read Checking until the live reply lands.
+  api.setProvisional(true);
+  const html = renders(withMarker, 'provisional render');
+  has(html, 'Checking', 'the safety card says Checking, not a verdict');
+  /status-(safe|unsafe)"/.test(html)
+    ? fail('a provisional render shows a Safe/Unsafe verdict from the saved copy')
+    : pass('no Safe or Unsafe verdict is shown from the saved copy');
+  has(html, 'Cycle Day', 'the rest of the dashboard is drawn as normal');
+  has(html, 'Daily Log', 'the log table is drawn as normal');
+
+  // And it must clear by itself: the same data, no longer provisional, is a
+  // verdict again. A flag that never clears is a dashboard stuck on Checking.
+  api.setProvisional(false);
+  const live = renders(withMarker, 'the live reply that follows');
+  /status-(safe|unsafe)"/.test(live)
+    ? pass('the verdict appears once the read has answered')
+    : fail('the verdict never comes back after the read answers');
 }
 
 console.log('\n--- A CYCLE WITH NO MARKER ---');

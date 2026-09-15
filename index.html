@@ -1154,6 +1154,16 @@ function render(cycles) {
     safeHint   = `Saved data from ${cacheDate(_staleInfo.at)} — too old to judge.`;
   }
 
+  // Everything else on this screen is worth showing a second early. This one
+  // is not: a verdict computed from the saved copy could be a "Safe" the sheet
+  // would disagree with, and that is the one wrong answer this app must never
+  // give. It fills in by itself when the read lands, a second or two later.
+  if (_provisional) {
+    safeStatus = 'Checking…';
+    safeClass  = 'unknown';
+    safeHint   = 'Reading the sheet. The status appears once it answers.';
+  }
+
   // ── Stats cards ──────────────────────────────────────────────────────────
   const statsHTML = `
     <div class="stats">
@@ -1746,6 +1756,7 @@ const REFRESH_KEY = 'cycleSelfRefreshed';
 let _staleInfo      = null;   // set while the screen is drawn from the cache
 let _bannerDismissed = false;
 let _loadedOk        = false; // a live read has succeeded in this session
+let _provisional     = false; // on screen from the cache, live read still in flight
 let _tokenPersisted  = false; // the store accepted the token, so the address bar may be scrubbed
 
 // The token arrives once, in the URL fragment (#t=...). Text after "#" is
@@ -1928,6 +1939,7 @@ function failLoad(msg) {
   if (c) {
     try {
       _staleInfo = { at: c.at };
+      _provisional = false;
       _bannerDismissed = false;   // a new failure always brings the banner back
       if (_role === null) _role = c.role || null;
       renderPayload(c.cols, c.rows);
@@ -2001,6 +2013,7 @@ function loadData(attempt) {
       // — a render failure is a data problem, not a reason to reload the app.
       _loadedOk = true;
       _staleInfo = null;
+      _provisional = false;
       _role = resp.role || null;
       renderPayload(resp.cols, resp.rows);
       // Only cache what actually rendered, so a bad payload cannot overwrite a
@@ -2037,6 +2050,25 @@ function loadData(attempt) {
   document.head.appendChild(_scriptEl);
 }
 
+// Draw the saved copy before the read, not instead of it. Anything that could
+// be wrong by a day or two shows immediately; the safety verdict waits.
+function bootFromCache() {
+  const c = readCache();
+  if (!c) return;
+  try {
+    _provisional = true;
+    _role = c.role || null;
+    renderPayload(c.cols, c.rows);
+  } catch (e) {
+    // A saved copy this version cannot render is not worth a word to the user —
+    // the live read is already on its way and will replace it either way. Loud
+    // in the console, silent on screen.
+    console.error('The saved copy could not be drawn at startup:', e);
+    _provisional = false;
+  }
+}
+
+bootFromCache();
 loadData();
 // The refresh re-renders from scratch, which would wipe a half-typed entry.
 // A day being edited is unsaved work; the dashboard can wait ten more minutes.
