@@ -319,6 +319,8 @@ tfoot td {
 .save-status { margin-top: 10px; font-size: 0.86rem; line-height: 1.4; }
 .save-status.bad  { color: #c62828; font-weight: 600; }
 .save-status.good { color: #2e7d32; }
+.saved-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+  background: #e8f5e9; color: #1b5e20; font-size: 0.86rem; line-height: 1.4; }
 .more-btn {
   width: 100%;
   margin-top: 10px;
@@ -802,6 +804,7 @@ function writeErrorText(err) {
 // <<< ENTRY
 
 let _openDate    = null;   // the one day whose form is open
+let _savedNote   = null;   // { iso, action } of the last write that reached the sheet
 let _catchupDays = 14;     // how far back the catch-up list runs
 let _byIso       = new Map();
 let _saving      = false;
@@ -855,6 +858,15 @@ function daySummary(r) {
 }
 
 function entryScreenHTML(cycles) {
+  // The reload after a save wipes the save status, and a failed reload shows
+  // the cached rows, which do not contain the new entry. Without this, a write
+  // that reached the sheet is indistinguishable from one that did not.
+  const saved = _savedNote
+    ? `<div class="saved-note">Saved to ${escHTML(dayLabel(_savedNote.iso))} (${escHTML(_savedNote.action)}).` +
+      (_staleInfo ? ' The sheet could not be re-read afterwards, so the list below is older than your entry.' : '') +
+      `</div>`
+    : '';
+
   _byIso = new Map();
   for (const cyc of cycles) for (const r of cyc) _byIso.set(isoOf(r._date), r);
 
@@ -879,6 +891,7 @@ function entryScreenHTML(cycles) {
 
   return `<div class="section">
     <h2>Log a day</h2>
+    ${saved}
     <div>${cards.join('')}</div>
     <button class="more-btn" onclick="showMoreDays()">Show 14 more days</button>
   </div>`;
@@ -931,6 +944,7 @@ function entryFormHTML(iso, row) {
 }
 
 function openDay(iso) {
+  _savedNote = null;   // acknowledged by moving on
   _openDate = _openDate === iso ? null : iso;
   render(allCycles);
 }
@@ -1028,6 +1042,7 @@ async function saveEntry(iso) {
     // Re-read rather than patch the copy in memory: the safety verdict is
     // derived from the sheet, and a backdated write moves it.
     _openDate = null;
+    _savedNote = { iso: iso, action: res.action || 'saved' };
     setSaveStatus('Saved. Reloading…', 'good');
     loadData();
   } catch (e) {
@@ -1949,7 +1964,8 @@ function selfRefresh() {
   return true;
 }
 
-function loadData() {
+function loadData(attempt) {
+  attempt = attempt || 1;
   if (!PROXY_URL) {
     return showMessage('This app is not finished being set up.',
       'No data source is configured yet.', false);
@@ -1997,7 +2013,16 @@ function loadData() {
   };
 
   _scriptEl = document.createElement('script');
-  _scriptEl.onerror = () => { done(); failLoad('Could not reach the server — check your internet connection'); };
+  _scriptEl.onerror = () => {
+    done();
+    // A 404 from the flaky redirect errors fast, so a retry costs a second, not
+    // twenty. The 20s timeout below is a different failure and is not retried.
+    if (attempt < 3) {
+      console.warn(`The sheet did not answer (attempt ${attempt}) — retrying.`);
+      return setTimeout(() => loadData(attempt + 1), attempt * 800);
+    }
+    failLoad('Could not reach the server — check your internet connection');
+  };
   _scriptEl.src = `${PROXY_URL}?t=${encodeURIComponent(TOKEN)}&callback=_sheetCallback`;
   // JSONP reports nothing when a request simply never comes back. Without this
   // the app sits on the spinner forever and nobody is told anything.

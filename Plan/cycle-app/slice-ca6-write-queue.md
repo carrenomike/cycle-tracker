@@ -61,3 +61,29 @@ Slice ca5 landed.
   able to take unsent entries with it.
 - ca7's `failLoad()` falls back to the cache on a failed read. **A failed *write* must never be answered from the
   cache** — a queued entry that has not landed is not in `cycleCache` and must not look like it is.
+
+## Added by ca5 (2026-09-15) — the write path this slice wraps already exists
+
+- **`postEntry(iso, values)`** is the whole write: one `fetch` POST of `{t, date, values}` with
+  `Content-Type: text/plain` (a "simple" request — Apps Script cannot answer a CORS preflight; changing this
+  content type breaks writing from GitHub Pages) and a 30s `AbortSignal.timeout`. Queue around it; do not write a
+  second fetch.
+- **The write is already idempotent per date.** `doPost` updates the row for that date or inserts one in date
+  order, under a `LockService` script lock. So a flush may safely re-send an entry it is unsure about — that is
+  what makes a queue safe here — but it also means **the queue must key on the date**: two queued entries for the
+  same day are not two writes, they are a lost edit. Merge them.
+- **Only changed fields are sent** (`entryDiff`). A queued entry is therefore a *patch*, not a whole row, and it
+  was diffed against the sheet as it looked when the form was opened. If the sheet changes underneath while the
+  entry sits in the queue, flushing that patch still only overwrites the fields Mike touched — which is the
+  intended behaviour, but say so in the banner wording rather than implying the row was re-checked.
+- **`writeErrorText(err)` maps the endpoint's errors to plain sentences** (`read-only`, `no-access`,
+  `not-configured`) and passes anything else through verbatim. Reuse it for flush failures; do not invent a second
+  vocabulary.
+- **The display cache record gained a field:** it is now `{proxy, at, role, cols, rows}`. `writeCache` takes
+  `(cols, rows, role)`. `role` is what keeps the Log tab visible when the app loads from cache offline — which is
+  exactly when this slice's queue matters, so do not drop it.
+- **The 10-minute refresh is suppressed while a day's form is open** (`_openDate` is set), because a re-render
+  wipes a half-typed entry. A queue flush that re-renders must respect the same rule.
+- **`_openDate`, `_catchupDays`, `_byIso` and `_saving`** are the entry screen's state, and `render()` now has an
+  early return for `_tab === 'log'`. A banner added to `render()` must be added to **both** exits or it will be
+  invisible on the exact screen where the queue is used.

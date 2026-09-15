@@ -81,6 +81,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 4 | `slice-ca4-safety-engine.md` | Real safety rule + honest status cards on the existing dashboard | 3 |
 | 4a | `slice-ca4a-checkpoint-review.md` | Checkpoint review of `4050005..HEAD` (ca7a + ca4) — the deleted `Cycle` field and its ~20 readers | 4 |
 | 5 | `slice-ca5-catch-up-entry.md` | Writer-only Log tab, catch-up list newest first | 4 |
+| 5a | `slice-ca5a-checkpoint-review.md` | Checkpoint review of `5d08ce9..HEAD` (ca5) — the reworked `render()`, the cache record, the write endpoint | 5 |
 | 6 | `slice-ca6-write-queue.md` | Local unsent queue + persistent banner, sheet stays source of truth | 5 |
 | 7 | `slice-ca7-viewer-staleness.md` | Viewer cache, dismissible staleness banner, 3-day expiry | 3 |
 | 7a | `slice-ca7a-checkpoint-review.md` | Checkpoint review of `24f6067..HEAD` (ca7) — the cache, the expiry override, the reworked read path | 7 |
