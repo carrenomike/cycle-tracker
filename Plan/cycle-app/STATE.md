@@ -16,11 +16,10 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca2a** — `Time` recovered from Mike's xlsx export (88 values, the only loss); `migrate-sheet` carries it and refuses unmapped columns.
 - **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. PASS live 2026-09-14.
 - **ca7** — pulled forward ahead of ca4. Display cache `cycleCache` (dropped on a `PROXY_URL` change), dismissible dated banner carrying ca3a's warnings, 3-day "Out of date" expiry, 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`. Tirzah's aeroplane-mode check outstanding.
-- **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: a self-reload could discard a memory-only token; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 6 checks added, all three self-checks PASS.
+- **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: an unsaved token was scrubbed from the address bar and then lost on reload; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 6 checks added, all three self-checks PASS.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **Private mode strands the token on a manual reload** — `bootstrapToken()` strips `#t=` even when the storage write failed. ca7a blocked the automatic reload only; fixing the rest trades a screenshot leak. **Mike's call.**
 - **A revoked sheet permission reads as staleness** — the proxy answers `read-failed:`, so the viewer gets a dated cached dashboard, not an error. Correct for Tirzah; a banner is not proof of a token problem.
 
 ## Locked decisions
@@ -35,6 +34,9 @@ _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live i
 ### Data and access
 - The sheet is the **single source of truth**. Local storage holds only unsent entries plus a display cache.
 - **No pre-created future rows.** One row per actually-logged day — blanks caused the ca1 `detectPhase` bug.
+- **A token the browser would not save stays in the address bar.** The `#t=` scrub is skipped when the write
+  fails, and the self-reload carries the fragment. Mike ruled the screenshot leak acceptable (2026-09-15): an app
+  that cannot be reopened is worse. Do not "tidy up" the scrub into an unconditional one.
 - The **old sheet ID is permanently burned** (public repo since the first commit). New sheet, new ID, mandatory.
 - The **original spreadsheet is kept untouched** as a historical keepsake.
 - The repo **stays public** on GitHub Pages. All security lives in the two tokens, not in repo privacy.

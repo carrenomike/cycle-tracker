@@ -132,12 +132,18 @@ else {
   ? pass('the display cache and the access token use separate keys')
   : fail('cache/token storage keys are not both present');
 
-// ca7a: a reload throws away a memory-only token, because bootstrapToken()
-// strips the "#t=" fragment whether or not the write stuck.
+// ca7a: the "#t=" fragment is the only copy of a token the store would not
+// accept, so nothing may throw it away — not the scrub, not the self-reload.
+// (Mike ruled the screenshot leak acceptable, 2026-09-15.) Both halves matter:
+// either one alone still locks a private-mode user out.
+const bt0 = /function bootstrapToken\(\) \{([\s\S]*?)\n\}/.exec(src);
+bt0 && /if \(_tokenPersisted\) history\.replaceState/.test(bt0[1])
+  ? pass('the address bar is only scrubbed once the token is saved')
+  : fail('the "#t=" fragment is scrubbed even when the token was never saved');
 const sr = /function selfRefresh\(\) \{([\s\S]*?)\n\}/.exec(src);
-sr && /_tokenPersisted/.test(sr[1])
-  ? pass('self-refresh refuses to reload when the token was never saved')
-  : fail('self-refresh can reload away a memory-only token');
+sr && /location\.replace\([\s\S]*?location\.hash\)?;/.test(sr[1])
+  ? pass('the self-reload carries the "#t=" fragment through')
+  : fail('the self-reload drops the fragment, losing an unsaved token');
 // ca7a: the cache is the only large thing in localStorage, so it must be the
 // thing dropped when the token write hits quota — never the other way round.
 const bt = /function bootstrapToken\(\) \{([\s\S]*?)\n\}/.exec(src);

@@ -570,3 +570,32 @@ three are greps over source text, which is weaker than executing it — but the 
 A grep that pins the *shape* of the guard is what is available; ca8 should re-read them rather than trust them.
 
 `staleness-selfcheck`, `adapter-selfcheck` and `migrate-selfcheck` all PASS. No browser verification — Mike's.
+
+### ca7a addendum — Mike ruled the screenshot leak acceptable (2026-09-15)
+
+The open deviation ca7a left for Mike is closed: **keep the token in the address bar when the browser will not
+save it.** An app that cannot be reopened is worse than a URL visible in a screenshot, and the fragment is never
+sent to a server in either case — the leak is a shoulder-surf/screenshot risk only, not a network one.
+
+That makes the real fix the one ca7a deliberately did not make, and it replaces the `_tokenPersisted` gate on
+`selfRefresh()` rather than adding to it:
+
+- `bootstrapToken()`'s `history.replaceState` scrub is now **conditional on `_tokenPersisted`**. When the write
+  stuck, the fragment is scrubbed exactly as before — the common path is unchanged. When it did not, the fragment
+  stays, because it is the only copy of the token left.
+- `selfRefresh()` carries `location.hash` through `location.replace`, so the self-reload cannot be the thing that
+  drops it. When the token was saved the hash is empty and this appends nothing.
+- The `_tokenPersisted` guard inside `selfRefresh()` is **removed**. It existed only because a reload lost the
+  token; now that a reload preserves it, keeping the guard would mean two mechanisms for one invariant and would
+  needlessly deny the private-mode user the recovery reload. `_tokenPersisted` survives as the scrub condition,
+  which is its real job.
+- The alert wording changed with it. "It will ask for the link again next time you open the app" was true under
+  the old behaviour and is now wrong — it now tells the user to keep the page's web address, which is actionable.
+
+Both halves are pinned in `staleness-selfcheck.js`, because either one alone still locks the user out: the scrub
+must be conditional, **and** the reload must carry the fragment. The first version of the reload assertion used
+`[^)]*`, which `Date.now()`'s own `)` terminated early — it failed loudly against correct code rather than
+passing against broken code, which is the right way round, but worth noting for whoever edits these greps next.
+
+All three self-checks PASS. Unverified in a browser — Mike's, and this one is worth a private-window test: open
+the link, confirm the address bar still shows `#t=`, reload, confirm the app still opens.

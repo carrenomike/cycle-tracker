@@ -1136,12 +1136,12 @@ const REFRESH_KEY = 'cycleSelfRefreshed';
 let _staleInfo      = null;   // set while the screen is drawn from the cache
 let _bannerDismissed = false;
 let _loadedOk        = false; // a live read has succeeded in this session
-let _tokenPersisted  = false; // the token survives a reload, so reloading is safe
+let _tokenPersisted  = false; // the store accepted the token, so the address bar may be scrubbed
 
 // The token arrives once, in the URL fragment (#t=...). Text after "#" is
 // never sent to any server, so it stays out of logs and out of Referer
 // headers. Store it, then scrub the address bar so a screenshot or a shared
-// link does not leak it.
+// link does not leak it — but only once the store has actually accepted it.
 function bootstrapToken() {
   let token = '';
   const m = /[#&]t=([^&]*)/.exec(location.hash);
@@ -1160,14 +1160,18 @@ function bootstrapToken() {
         _tokenPersisted = true;
         console.warn('Storage was full — the saved copy of the data was dropped to keep the access link.');
       } catch (e2) {
-        // Private mode, or storage blocked. This session still works; the next
-        // one will not, and the user needs to know that rather than be puzzled.
+        // Private mode, or storage blocked. The fragment below is deliberately
+        // NOT scrubbed in this case — it is the only copy of the token left,
+        // and an app that cannot be reopened is worse than one whose URL is
+        // visible in a screenshot. (Mike's call, 2026-09-15.)
         console.error('Could not save the access token:', e, e2);
         alert('Your access link worked, but this browser would not save it. ' +
-              'It will ask for the link again next time you open the app.');
+              'Keep this page’s web address — it still holds your link, ' +
+              'and you will need it to open the app again.');
       }
     }
-    history.replaceState(null, '', location.pathname + location.search);
+    // Scrubbing an unsaved token would lock the user out on the next reload.
+    if (_tokenPersisted) history.replaceState(null, '', location.pathname + location.search);
   }
   if (!token) {
     try {
@@ -1334,14 +1338,6 @@ function failLoad(msg) {
 // an installed icon, so this has to happen from inside the page.
 function selfRefresh() {
   if (_loadedOk) return false;   // the URL is demonstrably fine; don't yank the page
-  // bootstrapToken() strips the "#t=" fragment whether or not the write stuck.
-  // If it did not stick the token is memory-only, and reloading would land the
-  // user on "No access" with no link left to re-open. A stuck spinner they can
-  // retry beats locking them out.
-  if (!_tokenPersisted) {
-    console.warn('The access link was never saved, so a reload would lose it — no self-refresh attempted.');
-    return false;
-  }
   try {
     if (sessionStorage.getItem(REFRESH_KEY)) return false;
     sessionStorage.setItem(REFRESH_KEY, '1');
@@ -1351,7 +1347,10 @@ function selfRefresh() {
   }
   console.warn('No reply in 20s on a first load \u2014 reloading the app past the browser cache.');
   showMessage('Still loading\u2026', 'Fetching the latest version of the app.', false);
-  location.replace(location.pathname + '?v=' + Date.now());
+  // location.hash is empty once the token is saved, and still holds "#t=" when
+  // it could not be. Carry it either way, or this reload is the thing that
+  // loses an unsaved token.
+  location.replace(location.pathname + '?v=' + Date.now() + location.hash);
   return true;
 }
 
