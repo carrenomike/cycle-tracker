@@ -16,7 +16,7 @@ const a = src.indexOf('// >>> STALENESS');
 const b = src.indexOf('// <<< STALENESS');
 if (a < 0 || b < 0) throw new Error('Could not find the STALENESS markers in index.html');
 const S = new Function(
-  `${src.slice(a, b)}; return { CACHE_MAX_AGE_MS, cacheIsUsable, cacheExpired, cacheDate, stalenessText, bannerHTML };`)();
+  `${src.slice(a, b)}; return { CACHE_MAX_AGE_MS, MAX_BANNER_WARNINGS, cacheIsUsable, cacheExpired, cacheDate, stalenessText, bannerHTML };`)();
 
 let failed = 0;
 const pass = m => console.log(`  ok    ${m}`);
@@ -87,6 +87,21 @@ console.log('\nbannerHTML');
   // Sheet text reaches the banner, so it must be escaped.
   const evil = S.bannerHTML(null, ['<img src=x onerror=alert(1)>'], false, t);
   /<img/.test(evil) ? fail('banner lines are not HTML-escaped') : pass('banner lines are HTML-escaped');
+
+  // ca7a: one malformed column warns on every row. The banner must not grow to
+  // the length of the sheet and bury the dashboard underneath it.
+  const many = S.bannerHTML(null, Array.from({ length: 165 }, (_, i) => `row ${i} is bad`), false, t);
+  const shownLines = (many.match(/<div>/g) || []).length;
+  shownLines <= S.MAX_BANNER_WARNINGS + 1
+    ? pass(`165 warnings render as ${shownLines} lines, not 165`)
+    : fail(`the banner is unbounded — 165 warnings rendered ${shownLines} lines`);
+  /and 161 more problems/.test(many)
+    ? pass('the banner says how many warnings it did not show')
+    : fail('the truncated banner hides the true count');
+  // The cap must not truncate when there is nothing to truncate.
+  !/and \d+ more/.test(S.bannerHTML(null, ['one bad row'], false, t))
+    ? pass('a short warning list is shown whole, with no "more" line')
+    : fail('the "more" line appears when nothing was dropped');
 }
 
 // The expiry override and the banner read the same flag but never each other's
@@ -116,6 +131,23 @@ else {
 /const CACHE_KEY = 'cycleCache'/.test(src) && /const TOKEN_KEY = 'cycleToken'/.test(src)
   ? pass('the display cache and the access token use separate keys')
   : fail('cache/token storage keys are not both present');
+
+// ca7a: a reload throws away a memory-only token, because bootstrapToken()
+// strips the "#t=" fragment whether or not the write stuck.
+const sr = /function selfRefresh\(\) \{([\s\S]*?)\n\}/.exec(src);
+sr && /_tokenPersisted/.test(sr[1])
+  ? pass('self-refresh refuses to reload when the token was never saved')
+  : fail('self-refresh can reload away a memory-only token');
+// ca7a: the cache is the only large thing in localStorage, so it must be the
+// thing dropped when the token write hits quota — never the other way round.
+const bt = /function bootstrapToken\(\) \{([\s\S]*?)\n\}/.exec(src);
+bt && /removeItem\(CACHE_KEY\)[\s\S]*setItem\(TOKEN_KEY/.test(bt[1])
+  ? pass('a full store drops the cache to keep the access token')
+  : fail('a full store leaves the user unable to save their access link');
+// Nothing may ever wipe the whole store — the token lives there too.
+/localStorage\.clear\(/.test(src)
+  ? fail('localStorage.clear() would take the access token with it')
+  : pass('no path clears all of localStorage');
 
 console.log(failed ? `\nstaleness self-check: ${failed} FAILED` : '\nstaleness self-check: PASS');
 process.exit(failed ? 1 : 0);

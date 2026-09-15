@@ -505,3 +505,68 @@ replaced. The stub is explicitly marked skippable at Mike's discretion; if skipp
 
 Outstanding and not verifiable from here: Tirzah's live check — aeroplane mode, confirm the banner and its named
 date, dismiss it, reload, confirm it is back.
+
+## ca7a — checkpoint review of `24f6067..HEAD` (ca7), 2026-09-15
+
+Reviewed ca7's 242 changed `index.html` lines plus `Tools/staleness-selfcheck.js` against the six targets in the
+slice. Three defects found and fixed; three targets confirmed clean by reading, not by trusting the self-check.
+
+**Target 1 — the expiry override holds.** `render()` sets `safeStatus` in the Safe/Unsafe branch, then the
+`_staleInfo && cacheExpired(...)` block overwrites it unconditionally, and `statsHTML` is built immediately after
+with nothing in between that can touch it. `_staleInfo` is set in `failLoad()` *before* `renderPayload()`, so
+there is no path that draws a cached dashboard without it set. No path can show `Safe` on a cache older than three
+days. The override never reads `_bannerDismissed`. Clean.
+
+**Target 2 — `failLoad()` cannot show a cache to someone who should see a message.** Code.gs emits exactly five
+error strings: `not-configured`, `no-access`, `sheet-missing: <name>`, `sheet-missing-Date-column` and
+`read-failed: <msg>`. The first two are access-shaped and both return before the fallback; a missing `TOKEN` and a
+missing `PROXY_URL` return before the fetch is even made. The remaining three are data-availability failures, not
+viewer-access failures — the viewer's link is still good and the data genuinely has not changed, so falling back
+to the cache with a dated banner is the honest answer there. A revoked *token* always lands on `no-access`,
+because the role check is a string comparison against constants that no longer match. Clean, with one caveat
+worth knowing: if Mike's own access to the sheet is revoked, the proxy answers `read-failed:` and Tirzah sees a
+stale dashboard with the banner rather than a message. That is correct behaviour for her — she has lost nothing —
+but it means a sheet-permission problem is visible only in the banner's date, not as an error.
+
+**Target 3 — the self-reload, one real defect.** The offline case is fine: in aeroplane mode the script tag's
+`onerror` fires immediately, so `failLoad()` runs and `selfRefresh()` is never reached — it hangs off the 20s
+timeout alone. The `sessionStorage` guard survives `location.replace` in the same tab, so it cannot loop.
+
+The `#t=` fragment, though, was a genuine lockout. `bootstrapToken()` calls `history.replaceState` to strip the
+fragment **whether or not the `localStorage.setItem` succeeded**. In private mode or with storage blocked, the
+token then exists only in the `TOKEN` const — and a self-reload 20 seconds later throws it away and lands the
+user on "No access" with no link left to reopen. Fixed by tracking `_tokenPersisted` (set when the token is
+written, and when one is read back from storage) and refusing to self-refresh without it: a stuck spinner they
+can retry beats an automatic lockout.
+
+Note the pre-existing half of this that ca7a did **not** change: the same strip means a *manual* reload in
+private mode also strands the user. That is ca3 behaviour, not ca7's, and fixing it means either keeping the
+token in the address bar — where a screenshot leaks it — or leaving it. Recorded in STATE as an open deviation
+for Mike to rule on rather than decided here.
+
+**Target 4 — the cache cannot take the token with it, but a full store could.** `localStorage.clear()` appears
+nowhere; `writeCache`'s quota handler removes `CACHE_KEY` alone. But the inverse was unguarded: the display cache
+is the only large thing this app stores, so a full store means `localStorage.setItem(TOKEN_KEY, ...)` in
+`bootstrapToken()` throws — and nothing dropped the cache to make room. A new access link could not be saved, and
+the user was told, permanently, that the app would ask for the link again every time. Fixed: on a token-write
+failure, remove `CACHE_KEY` and retry once. Losing the offline copy beats losing access; the alert now fires only
+when both attempts fail.
+
+**Target 5 — `renderPayload()` is the only caller of `render()`.** Grepped: one definition at `render(cycles)`,
+one call inside `renderPayload()`, and one unrelated `loadData()` in the Refresh button's `onclick`. The cached
+view and the live view cannot drift. Clean.
+
+**Target 6 — `warn()` was unbounded.** `_dataWarnings` is cleared at the top of `renderPayload()` before
+`adaptRows()` runs, so it cannot accumulate across the 10-minute refresh — that half was right. But one malformed
+column warns once per row, so a 165-row sheet produced a 165-line banner burying the dashboard underneath it.
+Capped at `MAX_BANNER_WARNINGS = 4` plus an "…and N more problems in the sheet like these." line. The cap is in
+`bannerHTML` rather than in `warn()`, so the console still receives every one of them.
+
+**Checks added.** Six new assertions in `staleness-selfcheck.js`: 165 warnings render as 5 lines and name the
+count, a short list gets no "more" line, `selfRefresh` mentions `_tokenPersisted`, `bootstrapToken` drops
+`CACHE_KEY` before retrying the token write, and `localStorage.clear(` appears nowhere in the file. The last
+three are greps over source text, which is weaker than executing it — but the functions they guard touch
+`localStorage`, `sessionStorage` and `location`, none of which exist in the self-check's `new Function` sandbox.
+A grep that pins the *shape* of the guard is what is available; ca8 should re-read them rather than trust them.
+
+`staleness-selfcheck`, `adapter-selfcheck` and `migrate-selfcheck` all PASS. No browser verification — Mike's.

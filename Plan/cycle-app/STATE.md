@@ -5,27 +5,23 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** 24f6067 — ~240 unreviewed app lines (ca7). Next checkpoint review is ca7a, then ca8.
+**Last reviewed commit:** ca7a reviewed `24f6067..HEAD` — 0 unreviewed app lines. Next checkpoint review is ca8.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. Dropped `Time`.
-- **ca3** — proxy live 2026-09-13: both roles read, bad tokens rejected, old sheet refused. `deploy.bat` was
-  silently skipping the push — fixed.
+- **ca3** — proxy live 2026-09-13: both roles read, bad tokens rejected, old sheet refused. `deploy.bat` was silently skipping the push — fixed.
 - **ca3a** — review of `1065c1e..HEAD`: `hasData`, strict `=== 'TRUE'` reads, double sheet open. 8 pushed on. PASS.
-- **ca2a** — `Time` recovered from Mike's xlsx export (88 values, none on a dropped row); an audit found it was the
-  only loss. `migrate-sheet` carries it and refuses unmapped columns. `verify-proxy` PASS.
+- **ca2a** — `Time` recovered from Mike's xlsx export (88 values, the only loss); `migrate-sheet` carries it and refuses unmapped columns.
 - **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. PASS live 2026-09-14.
-- **ca7** — pulled forward ahead of ca4. Display cache (`cycleCache`, invalidated by a `PROXY_URL` change),
-  dismissible banner naming the cached date and carrying ca3a's data warnings, 3-day "Out of date" expiry on the
-  safety card; honest 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`
-  PASS, adapter + migrate still PASS. Tirzah's aeroplane-mode check outstanding.
+- **ca7** — pulled forward ahead of ca4. Display cache `cycleCache` (dropped on a `PROXY_URL` change), dismissible dated banner carrying ca3a's warnings, 3-day "Out of date" expiry, 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`. Tirzah's aeroplane-mode check outstanding.
+- **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: a self-reload could discard a memory-only token; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 6 checks added, all three self-checks PASS.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **ca7a is optional** — README step 6 triggered on "touched a shared helper", not on size (~240 lines). Skip
-  straight to ca4 if preferred; if skipped, ca7's lines carry forward to ca8.
+- **Private mode strands the token on a manual reload** — `bootstrapToken()` strips `#t=` even when the storage write failed. ca7a blocked the automatic reload only; fixing the rest trades a screenshot leak. **Mike's call.**
+- **A revoked sheet permission reads as staleness** — the proxy answers `read-failed:`, so the viewer gets a dated cached dashboard, not an error. Correct for Tirzah; a banner is not proof of a token problem.
 
 ## Locked decisions
 _(From the /grill-me passes. Do not re-litigate. Slice-specific decisions live in their own slice files.)_

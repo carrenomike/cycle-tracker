@@ -439,11 +439,21 @@ function escHTML(s) {
 // One banner carries both the staleness line and any data-quality warnings, in
 // the same plain wording as the load failures — not a second vocabulary. All
 // state arrives as arguments so the self-check can exercise it without a DOM.
+
+// One malformed column affects every row, so the warning list is as long as the
+// sheet. An unbounded banner would bury the dashboard; the console keeps all of
+// them, and the count tells the reader how widespread it is.
+const MAX_BANNER_WARNINGS = 4;
+
 function bannerHTML(staleInfo, warnings, dismissed, now) {
   if (dismissed) return '';
   const lines = [];
   if (staleInfo) lines.push(stalenessText(staleInfo.at, now));
-  for (const w of warnings) lines.push(w);
+  for (const w of warnings.slice(0, MAX_BANNER_WARNINGS)) lines.push(w);
+  if (warnings.length > MAX_BANNER_WARNINGS) {
+    const n = warnings.length - MAX_BANNER_WARNINGS;
+    lines.push(`…and ${n} more problem${n !== 1 ? 's' : ''} in the sheet like these.`);
+  }
   if (!lines.length) return '';
   return `<div class="banner" id="banner">
     <button class="banner-x" onclick="dismissBanner()" aria-label="Dismiss">&times;</button>
@@ -1126,6 +1136,7 @@ const REFRESH_KEY = 'cycleSelfRefreshed';
 let _staleInfo      = null;   // set while the screen is drawn from the cache
 let _bannerDismissed = false;
 let _loadedOk        = false; // a live read has succeeded in this session
+let _tokenPersisted  = false; // the token survives a reload, so reloading is safe
 
 // The token arrives once, in the URL fragment (#t=...). Text after "#" is
 // never sent to any server, so it stays out of logs and out of Referer
@@ -1138,17 +1149,31 @@ function bootstrapToken() {
     token = decodeURIComponent(m[1]).trim();
     try {
       localStorage.setItem(TOKEN_KEY, token);
+      _tokenPersisted = true;
     } catch (e) {
-      // Private mode, or storage blocked. This session still works; the next
-      // one will not, and the user needs to know that rather than be puzzled.
-      console.error('Could not save the access token:', e);
-      alert('Your access link worked, but this browser would not save it. ' +
-            'It will ask for the link again next time you open the app.');
+      // Usually quota, and the display cache is the only large thing we store.
+      // Losing the offline copy beats losing access, so drop it and try again
+      // before telling the user they are stuck.
+      try {
+        localStorage.removeItem(CACHE_KEY);
+        localStorage.setItem(TOKEN_KEY, token);
+        _tokenPersisted = true;
+        console.warn('Storage was full — the saved copy of the data was dropped to keep the access link.');
+      } catch (e2) {
+        // Private mode, or storage blocked. This session still works; the next
+        // one will not, and the user needs to know that rather than be puzzled.
+        console.error('Could not save the access token:', e, e2);
+        alert('Your access link worked, but this browser would not save it. ' +
+              'It will ask for the link again next time you open the app.');
+      }
     }
     history.replaceState(null, '', location.pathname + location.search);
   }
   if (!token) {
-    try { token = localStorage.getItem(TOKEN_KEY) || ''; }
+    try {
+      token = localStorage.getItem(TOKEN_KEY) || '';
+      if (token) _tokenPersisted = true;
+    }
     catch (e) { console.error('Could not read the saved access token:', e); }
   }
   // Ask Chrome not to evict the token under storage pressure. Advisory only,
@@ -1309,6 +1334,14 @@ function failLoad(msg) {
 // an installed icon, so this has to happen from inside the page.
 function selfRefresh() {
   if (_loadedOk) return false;   // the URL is demonstrably fine; don't yank the page
+  // bootstrapToken() strips the "#t=" fragment whether or not the write stuck.
+  // If it did not stick the token is memory-only, and reloading would land the
+  // user on "No access" with no link left to re-open. A stuck spinner they can
+  // retry beats locking them out.
+  if (!_tokenPersisted) {
+    console.warn('The access link was never saved, so a reload would lose it — no self-refresh attempted.');
+    return false;
+  }
   try {
     if (sessionStorage.getItem(REFRESH_KEY)) return false;
     sessionStorage.setItem(REFRESH_KEY, '1');
