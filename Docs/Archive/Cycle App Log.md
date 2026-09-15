@@ -712,5 +712,10 @@ on does capture the whole function (11,447 characters), so those greps are real,
 are all correct as written. Full target-by-target notes live in `Plan/cycle-app/slice-ca4a-checkpoint-review.md`.
 
 **Verification.** `adapter`, `staleness`, `safety` and the new `render` self-check all PASS. `verify-proxy` needs
-a token and was not re-run; nothing in this slice touched the SAFETY or ADAPTER blocks' logic. The browser pass
-on ca4 is still outstanding — and as of this slice, still the only thing that has ever seen the dashboard draw.
+a token and was not re-run; nothing in this slice touched the SAFETY or ADAPTER blocks' logic. Pushed as `5d08ce9`.
+
+**Postscript — the bug never reached the phone.** The live site had been on ca3 (`24f6067`) since 2026-09-13;
+ca7, ca7a and ca4 were all sitting unpushed. Mike's phone was showing a working ca3 dashboard the entire time ca4
+was broken, which is why nothing looked wrong. The push took Pages from ca3 to ca4a in one jump — cache, staleness
+banner and safety engine all arriving together — and Mike confirmed all of it live on 2026-09-15. Worth remembering
+at the next checkpoint: "it works on my phone" says nothing about `HEAD` unless someone checks what is deployed.

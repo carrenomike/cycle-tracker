@@ -105,4 +105,6 @@ dashboard *looks like* is still Mike's browser pass. Mutation-tested: reintroduc
 
 ## Outstanding
 
-- Mike's browser pass on ca4 + this fix. Until it happens the dashboard has never been seen rendering.
+- None. Mike confirmed the dashboard live on his phone 2026-09-15, after `5d08ce9` pushed ca7
+  through ca4a to Pages in one jump — the first time any of it had been seen rendering. ca4's blank
+  dashboard never reached him: the live site had been sitting on ca3 (`24f6067`) the whole time.

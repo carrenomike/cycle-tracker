@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** ca4a (this slice) — the whole `4050005..HEAD` range is reviewed. Next checkpoint: ca8.
+**Last reviewed commit:** 5d08ce9 (ca4a) — the whole `4050005..HEAD` range is reviewed. Next checkpoint: ca8.
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
@@ -16,8 +16,8 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. PASS live 2026-09-14.
 - **ca7** — pulled forward ahead of ca4. Display cache `cycleCache` (dropped on a `PROXY_URL` change), dismissible dated banner carrying ca3a's warnings, 3-day "Out of date" expiry, 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`. Tirzah's aeroplane-mode check outstanding.
 - **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: an unsaved token was scrubbed from the address bar and then lost on reload; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 8 checks added, all three self-checks PASS. Private-window reload confirmed by Mike 2026-09-15.
-- **ca4a** — review of `4050005..HEAD`. ca4 shipped a blank dashboard: `render()` still read `ovDay`, a const ca4 had just deleted — a `ReferenceError` before `#app` was written, and every self-check passed anyway because none ran `render()`. Fixed, plus ca3's Ovulation-and-bleeding warning restored. New `Tools/render-selfcheck.js` runs the whole page script under stub browser globals; mutation-tested. All four PASS.
-- **ca4** — safety engine in one marked `SAFETY` block: opening bleed run, three-over-six in integer hundredths, window opens on the later of marker+4 and the fire day. ca3's synthesised `Cycle` column deleted, readers on `Flow`/`Ovulation`. Missed-Day-1 guard reversed (see slice file). New `Tools/safety-selfcheck.js`; `verify-proxy` reproduced d24/d22/d30/d37/d27 on the real data 2026-09-15. Phone check outstanding.
+- **ca4a** — review of `4050005..HEAD`. ca4 shipped a blank dashboard: `render()` still read `ovDay`, a const ca4 had just deleted — a `ReferenceError` before `#app` was written, and every self-check passed anyway because none ran `render()`. Fixed, plus ca3's Ovulation-and-bleeding warning restored. New `Tools/render-selfcheck.js` runs the whole page script under stub browser globals; mutation-tested. All four PASS. Live and confirmed by Mike 2026-09-15.
+- **ca4** — safety engine in one marked `SAFETY` block: opening bleed run, three-over-six in integer hundredths, window opens on the later of marker+4 and the fire day. ca3's synthesised `Cycle` column deleted, readers on `Flow`/`Ovulation`. Missed-Day-1 guard reversed (see slice file). New `Tools/safety-selfcheck.js`; `verify-proxy` reproduced d24/d22/d30/d37/d27 on the real data 2026-09-15. Phone-confirmed 2026-09-15 (via ca4a — ca4 alone never rendered).
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
