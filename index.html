@@ -727,7 +727,7 @@ function render(cycles) {
     <td>Cycle ${cycles.length}<span class="tag tag-current">Current</span></td>
     <td>${current[0]?.Date || '—'}</td>
     <td>${dayNumber} day${dayNumber !== 1 ? 's' : ''}</td>
-    <td>${ovDay != null ? `Day ${ovDay}` : '—'}</td>
+    <td>${ovDayNum != null ? `Day ${ovDayNum}` : '—'}</td>
     <td class="hide-sm">${moonCell(current[0])}</td>
     <td class="hide-sm">${ovRow ? moonCell(ovRow) : '—'}</td>
   </tr>` : '';
@@ -1353,6 +1353,14 @@ function adaptRows(rows) {
     row['Cycle Start'] = flag(r['Cycle Start'], 'Cycle Start', r.Date);
     row.Ovulation      = flag(r.Ovulation, 'Ovulation', r.Date);
     row.Exclude        = flag(r.Exclude, 'Exclude', r.Date);
+    // A day marked both is BOTH, now that the rules read the two columns
+    // independently: it anchors the safe window and counts in the opening bleed
+    // run, while the log table shows only "Ovulation". Say so rather than let
+    // one observation quietly do two jobs. (ca3 warned here too; ca4 dropped it
+    // along with the synthesised Cycle column. ca4a puts it back.)
+    if (row.Ovulation === 'TRUE' && String(r.Flow || '').trim().toLowerCase() === 'bleeding') {
+      warn(`${r.Date}: marked both Ovulation and bleeding — it counts as both.`);
+    }
     if (row['Cycle Start'] === 'TRUE') cycleStart = d;
     row._date = d;
     // Display format matches what the old sheet's formatted cells gave, so no

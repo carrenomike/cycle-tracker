@@ -667,3 +667,50 @@ above the line, baseline/high non-overlap, temp-less and excluded rows, a cycle 
 phase vocabulary (it greps `phaseLabel` for the absence of "Ovulation"). `verify-proxy` runs the same engine
 against the real sheet and asserts every cycle's opening — **d24 / d22 / d30 / d37 / d27, confirmed by Mike on
 2026-09-15** — plus a marker-stripped pass in which no cycle may open a window at all. All three self-checks PASS.
+
+---
+
+## ca4a — checkpoint review of `4050005..HEAD` (2026-09-15)
+
+**ca4 shipped a dashboard that could not draw a single pixel, and every check said PASS.** ca4 replaced the
+inline safe-sex arithmetic in `render()` with `safetyVerdict()`, and the deleted lines included
+`const ovDay = ovDayNum;`. Eighty lines further down, the Cycle History table's current-cycle row still read
+`ovDay`. An undeclared identifier inside a template literal is a `ReferenceError`, thrown while building the
+string — so `render()` died before it ever assigned `#app.innerHTML`, on every load where the current cycle has
+any logged data. That is every load. One word: `ovDayNum`.
+
+**Why nothing caught it.** The three self-checks each extract one marked block — `ADAPTER`, `STALENESS`,
+`SAFETY` — and execute it in isolation. `render()` is in none of them; the checks that touch it do so as *string
+greps* against the file, which a `ReferenceError` cannot fail. The marked-block discipline that made the safety
+engine trustworthy is precisely what left the largest function in the app unexecuted. ca4 was also never opened
+in a browser (its slice file says "phone check outstanding"), so a green board and no browser pass covered a
+total failure.
+
+**`Tools/render-selfcheck.js`** closes that. Rather than mark a fourth block, it loads the **whole page script**
+between the `<script>` tags under stub browser globals — `document` (a single shared element whose `innerHTML`
+the check reads back), in-memory `localStorage`/`sessionStorage`, an inert `location`/`history`, a `Chart` class
+with `destroy`/`update`/`getDatasetMeta`, and no-op timers so the page's 10-minute refresh cannot hold the
+process open. Two date-anchored fixtures go through `renderPayload()`, the one entry point the live and cached
+paths share: a two-cycle history with an ovulation marker and a three-day unlogged gap, and the same data with
+the marker removed. It asserts that render runs clean and that the safety card, both tables, the current-cycle
+row, the unlogged count and the ovulation cell are all present — not what any of it looks like, which stays
+Mike's job. Mutation-tested: putting `ovDay` back turns 10 assertions red.
+
+**The Ovulation-and-bleeding warning is back.** ca4 deleted it with the `Cycle` column, on the reasoning recorded
+above — that `phaseTag` resolves the collision in display code where it belongs. That reasoning was half right
+and the wrong half mattered: `phaseTag` resolves the *display*, but `isOv` and `isBleeding` now read the two
+columns independently, so a day marked both silently anchors the safe window **and** counts in the opening bleed
+run while showing only "Ovulation" in the log. Deleting the synthesis removed the place the collision was
+visible, not the collision. It warns again from `adaptRows`, reworded from "it was read as Ovulation" to "it
+counts as both", and reaches Tirzah through ca7's banner.
+
+**Everything else in the range held up.** All ~20 rewritten `r.Cycle` readers are equivalent to ca3's synthesis
+(verified against `git show e569994^`; `isBleeding`'s trim-and-lower-case is strictly more permissive and
+identical on the real data). The safety engine's boundaries are correct at every edge the slice named. An empty
+`cycles` array cannot reach `render()` — `renderPayload` throws first. The `render()`-body regex both checks rely
+on does capture the whole function (11,447 characters), so those greps are real, not vacuous. ca7a's three fixes
+are all correct as written. Full target-by-target notes live in `Plan/cycle-app/slice-ca4a-checkpoint-review.md`.
+
+**Verification.** `adapter`, `staleness`, `safety` and the new `render` self-check all PASS. `verify-proxy` needs
+a token and was not re-run; nothing in this slice touched the SAFETY or ADAPTER blocks' logic. The browser pass
+on ca4 is still outstanding — and as of this slice, still the only thing that has ever seen the dashboard draw.

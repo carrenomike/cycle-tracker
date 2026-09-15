@@ -42,8 +42,9 @@ Every earlier slice, landed and committed.
     wording now exists only where the server actually reports it (`read-failed:` out of `Code.gs`). Confirm no
     other message asserts a cause it has not observed; that was ca3b's lesson and it is the easiest one to undo.
   - **Stale cache.** ca7 owns it: `cycleCache`, the dismissible staleness banner, and the 3-day "Out of date"
-    override. `Tools/staleness-selfcheck.js` covers the rules; what it cannot cover is the wiring in `render()`
-    surviving ca4's rewrite of the same card. Check that by hand.
+    override. `Tools/staleness-selfcheck.js` covers the rules and `Tools/render-selfcheck.js` (ca4a) now renders
+    the card for real, so the wiring is covered too — but neither runs the *cached* path with `_staleInfo` set.
+    Check the "Out of date" card by hand, with the phone offline for more than three days.
 - **New failure path to add to the list: the self-reload.** On a first-load timeout ca7 calls
   `location.replace(pathname + '?v=<now>')` once per tab to escape a cached page pointing at an archived `/exec`.
   Confirm it cannot loop (it is gated on `sessionStorage.cycleSelfRefreshed` and on no successful load having

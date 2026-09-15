@@ -1,4 +1,4 @@
-# Slice ca4a — Checkpoint review of `4050005..HEAD` (stub)
+# Slice ca4a — Checkpoint review of `4050005..HEAD`
 
 ## Scope
 
@@ -37,3 +37,72 @@ ca4 deleted a field that roughly twenty call sites read and rewrote all of them.
 - No typecheck, test or build exists in this project. Headless only, plus Mike's browser pass.
 - Every finding either fixed or written into the slice file that owns it.
 - `STATE.md`'s `Last reviewed commit` marker moved to this slice's commit.
+
+
+---
+
+# Outcome — 2026-09-15
+
+**2 defects fixed, 1 new check added. All four self-checks PASS.**
+
+## Fixed
+
+1. **The dashboard did not render at all.** ca4 deleted `const ovDay = ovDayNum;` from `render()` along with the
+   old safe-sex arithmetic, but left the Cycle History current-cycle row reading `ovDay`. That is a
+   `ReferenceError` thrown inside the template literal, before `#app` is written — a permanently blank screen on
+   every load where the current cycle has any logged data, which is always. Fixed to `ovDayNum`
+   (`index.html:730`). ca4 was never opened in a browser; all three self-checks passed straight through it,
+   because none of them ran `render()`.
+2. **A restored warning.** ca3's adapter warned when a day was marked both `Ovulation` and `Flow=bleeding`; ca4
+   deleted that warning along with the synthesised `Cycle` column it guarded. Under ca4 the contradiction matters
+   *more*, not less: `isOv` and `isBleeding` are independent, so such a day anchors the safe window **and** counts
+   in the opening bleed run, while the log table shows only "Ovulation". The warning is back in `adaptRows`,
+   reworded to say the day counts as both, and reaches Tirzah through ca7's banner.
+
+## New — `Tools/render-selfcheck.js`
+
+The three existing checks each extract one marked block and test it in isolation. `render()` is the largest piece
+of code in the app and nothing executed it, which is exactly how defect 1 shipped green. The new check loads the
+**whole page script** under stub browser globals (`document`, `localStorage`, `location`, a `Chart` stub) and
+pushes two real fixtures through `renderPayload()` — the same entry point the live and the cached paths share. It
+asserts only that every path runs and that the cards, both tables and the ovulation cell are present; what the
+dashboard *looks like* is still Mike's browser pass. Mutation-tested: reintroducing `ovDay` turns 10 checks red.
+
+## Targets, as reviewed
+
+1. **Former `r.Cycle` readers** — `grep` returns one comment in `index.html`; the `Tools/migrate-sheet.js` hits
+   read the *old* source sheet's own column and are correct. All rewritten readers verified equivalent against
+   `git show e569994^`: ca3 synthesised `Ovulation → 'Ovulation'`, else `Flow === 'bleeding' → 'Blood'`, which is
+   `phaseTag()` exactly. `isBleeding` additionally trims and lower-cases, which is strictly more permissive and
+   identical on the real data.
+2. **Safety boundaries** — clean. `threeOverSixDay`'s loop bound `i + 2 < u.length` is right; `coverlineCents`
+   with the marker on the last logged row is right; `safetyVerdict`'s `dayNumber - ovDay` hint is only reachable
+   when `opens != null`, which implies `ovDay != null`. A cycle of one row and a `dayNumber` past the data both
+   render (covered by the new check's unlogged-days gap).
+3. **`unloggedDays` / `lastDataIndex`** — safe. `splitCycles` only keeps rows with a parseable `Day`, so
+   `lastDataIndex`'s all-blank fallback still lands on a row with a numeric `Day` and the `isNaN` guard is belt
+   and braces. An empty `cycles` array cannot reach `render()` — `renderPayload` throws on it first.
+4. **The three self-checks** — no vacuous passes. The `function render(cycles) \{([\s\S]*?)
+\}` regex both
+   files use does capture the entire body (11,447 chars, ending at `drawOverlayChart(cycles)`), so the greps
+   anchored on it are real. One weak spot noted, not fixed: `staleness-selfcheck`'s
+   `/location\.replace\([\s\S]*?location\.hash\)?;/` uses a lazy any-char run, so it would also match a
+   `location.replace()` and an unrelated later `location.hash` in the same function. Correct today; tighten it if
+   `selfRefresh()` ever grows.
+5. **ca7a's own fixes** — all three correct as written. The conditional scrub only fires on `_tokenPersisted`;
+   the cache-drop retry removes `CACHE_KEY` before re-`setItem`ing `TOKEN_KEY`, never the reverse; the banner cap
+   truncates at 4 and names the remainder. `selfRefresh()` dropping `location.search` while keeping
+   `location.hash` is deliberate — it is replacing `?v=`.
+
+## Noted, not fixed
+
+- **`detectPhase` can read "Bleeding" on a stale cycle.** It looks at the last five *logged* rows, so a cycle with
+  few logged rows that opened with a bleed still says "Bleeding" on day 20 if nothing has been logged since. This
+  is unchanged from ca3 — not a ca4 regression — and ca4's unlogged-days count now sits on the card beside it,
+  which is the honest signal. Revisit only if Tirzah reports it.
+- **Not covered by any check:** the cached render path with `_staleInfo` set (the "Out of date" card). Handed to
+  ca8, whose stub is amended.
+
+## Outstanding
+
+- Mike's browser pass on ca4 + this fix. Until it happens the dashboard has never been seen rendering.
