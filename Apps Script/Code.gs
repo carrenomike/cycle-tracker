@@ -173,6 +173,21 @@ function doPost(e) {
 // invalid value. cell() flattens the boolean back to 'TRUE' on the way out.
 var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude'];
 
+// setValues() enters a string the way a person typing it would, so Sheets parses
+// it: a Note of '=1+1' becomes a formula and the text is lost (the live ca5a
+// checks read it back as '2' twice). Two fixes were tried against the real sheet
+// and both failed: a leading apostrophe (a convention of the typing UI, not of the
+// API) and a plain-text number format on the cell (setValues parses first and
+// formats the result). A RichTextValue is text by construction — there is nothing
+// for Sheets to parse — so the text columns are written again, on their own, after
+// the row write that would otherwise overwrite them.
+//
+// Note is the only free-text column — every other column the app writes is a
+// flag, a number, a time, or one of a fixed list — and it is the only one whose
+// parsing we have to switch off. Temp and Time rely on that same parsing to land
+// as a number and a time, so this must stay a list, not a blanket.
+var TEXT_COLS = ['Note'];
+
 function writeRow(date, values, del) {
   var ss    = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName(SHEET_NAME);
@@ -194,11 +209,17 @@ function writeRow(date, values, del) {
 
   var lastRow = sheet.getLastRow();
   var dates   = lastRow > 1 ? sheet.getRange(2, dateAt + 1, lastRow - 1, 1).getValues() : [];
-  var target = 0, insertAt = 0;
+  var target = 0, insertAt = 0, odd = [];
   for (var i = 0; i < dates.length; i++) {
     var v = dates[i][0];
     if (v === '' || v === null) continue;
     var iso = v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v).trim();
+    // insertAt is chosen by a STRING comparison, which is only sound on
+    // yyyy-MM-dd. A cell holding anything else ('3/29/2026', a stray note)
+    // would compare as greater than every 2026 date and drag the new row to
+    // the top of the sheet, silently reshaping every cycle after it. Skip it
+    // for ordering and say so in the reply rather than guess.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) { odd.push(String(v)); continue; }
     if (iso === date) { target = i + 2; break; }
     if (iso > date && !insertAt) insertAt = i + 2;   // first row dated later
   }
@@ -235,12 +256,26 @@ function writeRow(date, values, del) {
     cur[dateAt] = new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10), 12, 0, 0);
   }
   for (var col in values) {
-    var val = values[col];
-    cur[cols.indexOf(col)] = FLAG_COLS.indexOf(col) >= 0
-      ? (String(val).trim().toUpperCase() === 'TRUE' ? true : '')
-      : String(val == null ? '' : val).trim();
+    var at = cols.indexOf(col);
+    cur[at] = FLAG_COLS.indexOf(col) >= 0
+      ? (String(values[col]).trim().toUpperCase() === 'TRUE')
+      : String(values[col] == null ? '' : values[col]).trim();
   }
   sheet.getRange(row, 1, 1, cols.length).setValues([cur]);
 
-  return { ok: true, action: action, date: date, row: row };
+  // Every text column on the row, not only the ones this request patched: the write
+  // above re-enters the whole row, so a Note already holding '=1+1' would be turned
+  // into a formula by a save of nothing but a temperature.
+  for (var j = 0; j < TEXT_COLS.length; j++) {
+    var ta = cols.indexOf(TEXT_COLS[j]);
+    if (ta < 0) continue;
+    var txt = String(cur[ta] == null ? '' : cur[ta]);
+    if (txt === '') continue;   // newRichTextValue() will not take an empty string
+    sheet.getRange(row, ta + 1)
+         .setRichTextValue(SpreadsheetApp.newRichTextValue().setText(txt).build());
+  }
+
+  var out = { ok: true, action: action, date: date, row: row };
+  if (odd.length) out.unreadableDates = odd;   // never swallowed — the app shows it
+  return out;
 }

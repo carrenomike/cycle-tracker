@@ -782,3 +782,130 @@ lands. Deployed.
 **Live confirmation (2026-09-15).** Mike confirmed all three fixes on the phone: the green "Saved to …" line
 survives the reload, the read retry rides out the `/exec` 404, and the cached copy paints immediately with the
 safety card holding at "Checking…" until the live read lands.
+
+---
+
+## ca5a — checkpoint review of `2a7352f..db5a8ee` (ca5)
+
+Read-and-verify pass over ca5, the first slice that writes to the sheet. All six self-checks PASS; that was true
+before the review too, which is the whole reason this slice exists. Eight targets, four fixed, four cleared.
+
+**1. `render()`'s two exits — GAP CLOSED.** `Tools/render-selfcheck.js` ran the dashboard exit only, so the log
+exit was in exactly the state ca4's `ovDay` bug was: shipped, and never executed by anything but a phone. The
+check now renders the log tab closed, renders it with a card open, and renders the dashboard again after — the
+round trip is what proves the charts come back. Mutation-tested: pointing `entryScreenHTML` at an undefined
+variable turns six checks red. The exit itself is clean — `allCycles` at the top is read by `openDay`,
+`showMoreDays` and `switchTab`, all of which re-enter `render()`, and nothing reads it between the assignment and
+the old position. `selectedLogCycle` is only touched on the dashboard exit and only read there.
+`currentDayNumber` is set on the dashboard exit and **read nowhere at all** — dead state since ca4, left in place
+rather than churn a review diff; delete it in ca6 if the queue does not claim it.
+
+**2. Chart teardown — CLEAR.** `drawTimelineChart`/`drawOverlayChart` each destroy before rebuilding, so the log
+exit's teardown is belt and braces rather than the only guard. The only other reference to a chart object is
+`overlayChart.getDatasetMeta()` inside `drawOverlayChart` itself, after the rebuild. Dashboard → Log → Dashboard
+is now a self-check, not a hope.
+
+**3. The write endpoint's read-patch-write — TWO FIXES.**
+- Unticking a flag wrote `''` into a cell that carries a checkbox. `writeRow` now writes the boolean `false`,
+  which is what an unticked checkbox actually holds; `cell()` already flattens `false` back to `''` on the way
+  out, so nothing downstream changes.
+- `setValues()` treats a leading `=` as a formula. A Note typed as `=1+1` was stored as a formula, and the app
+  read back its result — the typed text gone, with no error anywhere. New `literal()` prefixes such a value with
+  an apostrophe, which Sheets strips again on read, so the value round-trips unchanged.
+- Formulas, dates and numbers in columns the request never mentions are untouched: `getValues()`/`setValues()`
+  round-trips them as the values they are. A column holding a **formula** would be flattened to its last computed
+  value — the migrated sheet has none, and nothing in the app creates one. Noted, not guarded.
+
+**4. Insert-in-date-order — FIXED.** `insertAt` is chosen by a string comparison, which is only sound on
+`yyyy-MM-dd`. A `Date` cell is formatted to that; a *string* cell was trusted as-is, so a stray `3/29/2026` would
+compare greater than every 2026 date and drag the new row to the top of the sheet, reshaping every cycle after
+it. Such cells are now skipped for ordering and reported back as `unreadableDates` rather than guessed at. The
+"no later row" path appends correctly: `insertRowAfter(lastRow)` then writes `lastRow + 1`, never `getLastRow()`.
+
+**5. The cache record's new field — CLEAR.** `cacheIsUsable` does not require `role`, so a record written before
+ca5 loads and leaves `_role` null; the Log tab is hidden for the second or two until the live read answers, and
+then appears. `_role` can only ever hold what the server granted on this device at some past moment, and every
+write is refused server-side regardless — the tab is cosmetic by locked decision. No promotion path.
+
+**6. Refresh suppression — FIXED.** An open card paused the 10-minute refresh indefinitely, and the staleness
+banner and the safety verdict went quiet with it, visible only as a `console.log` nobody reads on a phone.
+Re-rendering over a half-typed form is still the wrong answer, so after three skipped refreshes (30 minutes) the
+form's own hint line says so, written straight into `#entryHint` without touching any input.
+
+**7. The entry form against the real schema — COVERED.** `render-selfcheck` now opens a row carrying a mucus
+value the option list does not contain, an Ovulation marker and a `cervix: …` note, and asserts the unknown value
+stays selected, the note is shown rather than dropped, and saving a temperature on that row sends `Temp` and
+nothing else. The live half — checkboxes and the formula-shaped note against the real sheet — is new coverage in
+`Tools/verify-proxy.js` (2b), which Mike re-runs.
+
+**8. The log table's four new columns — MIKE'S EYES.** Flow, Quality and Exc were added without `hide-sm`, so
+below 620px the table went from 5 visible columns to 8. It sits in `.tbl-wrap { overflow-x: auto }` so it scrolls
+rather than breaking the page, but whether it is readable on the S22 Ultra is not a grep question. Unresolved
+pending Mike.
+
+**Also fixed, found on the way:** `buildLogRows` printed every sheet value into the table unescaped. That was
+survivable while the sheet was only ever written by hand; since ca5 the Note is text Mike types into this app,
+and a `<` in it silently ate the rest of the row. Every cell now goes through `escHTML`, the same guard
+`daySummary()` already used on the same values.
+
+All six self-checks PASS. `verify-proxy` re-run and live confirmation are Mike's.
+
+### ca5a addendum — Mike's live run, 2026-09-15
+
+Two of the new checks failed against the real sheet. Everything else passed, including
+the checkbox fix (a ticked flag reads back TRUE, an unticked one blank, the temperature
+undisturbed) and the ordered insert/update/delete of the sentinel row.
+
+**1. `safe window opens on cycle day: expected [24,22,30,37,27], got [24,22,30,37,30]`**
+
+Not a regression. The `SAFETY` and `ADAPTER` blocks hash byte-identical between `2a7352f`
+and the working tree, so nothing in the engine or the adapter moved; the row count was 169
+against a floor of 165 and the last date was today, so Mike has logged since the 2026-09-13
+baseline. The run's own info line shows three-over-six now firing on day 30 in cycle 5,
+where it previously never fired at all. `safeWindowOpensOn` returns
+`max(ovDay + 4, fire)` = `max(27, 30)` = 30 — the locked rule that three-over-six may only
+delay an opening, never trigger one, working exactly as written. `EXPECT.opensOn` raised to
+`[24, 22, 30, 37, 30]` with the reasoning in the comment. Cycle 5 should hold at 30 now:
+once three-over-six has fired the day is fixed.
+
+**2. `a note starting with = survived as text, not as 2: expected "=1+1", got "2"`**
+
+Two fixes were tried against the real sheet and both failed — worth recording so neither is
+tried a third time:
+
+- **A leading apostrophe** (`literal()`). That forces text when a person *types* it into a
+  cell; it is a convention of the typing UI, not of the API. `setValues()` evaluated the
+  formula anyway.
+- **A plain-text number format on the cell** (`setNumberFormat('@')` + `flush()` before the
+  write). Also evaluated. `setValues()` parses the input first and applies the format to the
+  result; the UI's plain-text behaviour lives above the API.
+
+What works instead: a `RichTextValue`. It is text by construction, so there is nothing for
+Sheets to parse. The text columns are written a second time, on their own, *after* the
+`setValues()` that would otherwise overwrite them.
+
+Sibling bug found while fixing it: read-patch-write re-enters **every** column on the row,
+so a Note already holding `=1+1` as text would have been turned into a formula by a save
+that never mentioned Note — a save of just a temperature would have silently eaten it. So
+the rich-text rewrite covers every text column on the row on every write, not only
+to the ones the request patched. `verify-proxy` now asserts exactly that: the untick step
+patches only the two flags, and the Note is checked again afterwards.
+
+`TEXT_COLS` is a list (`['Note']`), not a blanket: Note is the only free-text column, and
+Temp and Time rely on the same entry parsing to land as a number and a time.
+
+All six self-checks still PASS. Still Mike's: a re-run of `verify-proxy` after re-pasting
+`Code.gs`, and target 8 (the log table's column count on the S22 Ultra).
+
+**Target 8 — the log table on the S22 Ultra.** Mike confirmed the count: eight columns
+survive `hide-sm` (Day, Date, Temp, Flow, Quality, Exc, Phase, Note), `.tbl-wrap` scrolls
+them sideways, and Temp/Flow/Quality scroll away from the day they belong to — you cannot
+tell which row you are reading. Day and Date are now `position: sticky` under 620px.
+
+Two details the CSS cannot infer: column 2's `left` has to equal column 1's `width`, so both
+are written as 52px rather than left to the content; and a sticky cell is transparent by
+default, so the scrolling columns would slide visibly underneath it. `background: inherit`
+on the two cells borrows the row's colour, which needed one new base rule — `tbody tr
+{ background: #fff }` — placed before the `.row-*` rules so those still win.
+
+All six self-checks PASS.

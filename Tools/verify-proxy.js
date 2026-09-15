@@ -42,10 +42,16 @@ const EXPECT = {
   minTimes: 88,
   // The cycle day each cycle's post-ovulation safe window opens on, recomputed
   // in integer hundredths against the migrated data on 2026-09-13. Cycles 1-4
-  // reproduce the values the 2026-08-26 prototype gave; cycle 5 opens at its
-  // day-23 marker + 4 because three-over-six never fires in it. A change here
-  // is either a rule that broke or history being rewritten — never a shrug.
-  opensOn: [24, 22, 30, 37, 27],
+  // reproduce the values the 2026-08-26 prototype gave and have not moved since.
+  // Cycle 5 read 27 on 2026-09-13 (its day-23 marker + 4, three-over-six silent).
+  // Raised to 30 on 2026-09-15: cycle 5 is the live one, and the temperatures
+  // logged since push three-over-six to day 30, which delays the opening from 27
+  // to 30. The engine and adapter blocks are byte-identical to the 2026-09-13
+  // run, so this is new data, not a rule that moved. Once three-over-six has
+  // fired the day is fixed, so cycle 5 should now hold at 30 until cycle 6.
+  // Any OTHER change here is a rule that broke or history being rewritten
+  // — never a shrug.
+  opensOn: [24, 22, 30, 37, 30],
 };
 
 let failed = 0;
@@ -345,6 +351,35 @@ function splitCycles(rows) {
       // including the `cervix: …` text ca2 folded into the Note.
       is(got[0].Note, 'verify-proxy sentinel', 'a column the update did not mention was left alone');
       is(got[0].Flow, 'spotting', 'the untouched Flow survived the update');
+    }
+
+    // 2b. The checkbox columns and the one value setValues() would eat.
+    //     ca5a: unticking a flag used to write a blank string into a cell that
+    //     carries a checkbox, and a Note starting with '=' was stored as a
+    //     formula and came back as its result. Neither is reachable from the
+    //     offline checks — both need the real sheet.
+    const fl = await post(url, { t: writerToken, date: SENTINEL,
+      values: { Ovulation: 'TRUE', Exclude: 'TRUE', Note: '=1+1' } });
+    is(fl.ok === true && fl.action, 'updated', 'the flags and the formula-shaped note were written');
+    await pause();
+    got = sentinelRow(await rowsAt(writerToken));
+    if (got.length === 1) {
+      is(got[0].Ovulation, 'TRUE', 'a ticked Ovulation reads back as TRUE');
+      is(got[0].Exclude, 'TRUE', 'a ticked Exclude reads back as TRUE');
+      is(got[0].Note, '=1+1', 'a note starting with = survived as text, not as 2');
+    }
+
+    const unfl = await post(url, { t: writerToken, date: SENTINEL, values: { Ovulation: '', Exclude: '' } });
+    is(unfl.ok === true && unfl.action, 'updated', 'unticking the flags was accepted');
+    await pause();
+    got = sentinelRow(await rowsAt(writerToken));
+    if (got.length === 1) {
+      is(got[0].Ovulation, '', 'an unticked Ovulation reads back blank');
+      is(got[0].Exclude, '', 'an unticked Exclude reads back blank');
+      is(got[0].Temp, '97.22', 'the temperature was not disturbed by the flag writes');
+      // The write above never mentioned Note, but read-patch-write re-enters the
+      // whole row — so this is the check that the cell stayed plain text.
+      is(got[0].Note, '=1+1', 'the formula-shaped note survived a save that never mentioned it');
     }
 
     // 3. Cleanup. There is no delete in the app — it exists so this check can

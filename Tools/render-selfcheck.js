@@ -63,7 +63,9 @@ const env = {
 };
 const api = new Function(...Object.keys(env),
   `${script}\n; return { renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
-       setProvisional: v => { _provisional = v; } };`
+       setProvisional: v => { _provisional = v; },
+       setScreen: (tab, role) => { _tab = tab; _role = role; },
+       setOpenDate: v => { _openDate = v; }, entryFormHTML, entryDiff };`
 )(...Object.values(env));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -164,6 +166,59 @@ console.log('\n--- THE LOG TABLE FOR EVERY CYCLE ---');
     cycles.forEach(c => api.buildLogRows(c));
     pass(`buildLogRows runs for all ${cycles.length} cycles`);
   } catch (e) { fail(`buildLogRows threw: ${e.message}`); }
+}
+
+console.log('\n--- THE LOG EXIT (writer only) ---');
+{
+  // ca5 gave render() a second exit the dashboard half never reaches — exactly
+  // the shape of the ca4 bug: a path every self-check skipped. Render it closed,
+  // render it with a card open, then render the dashboard again; the round trip
+  // is what rebuilds the charts.
+  api.setScreen('log', 'writer');
+  const closed = renders(withMarker, 'the log tab');
+  has(closed, 'Log a day', 'the catch-up list is drawn');
+  has(closed, 'day-card', 'there are day cards');
+  has(closed, 'Show 14 more days', 'the show-more button is drawn');
+  /chartTimeline|Cycle Day/.test(closed)
+    ? fail('dashboard markup leaked into the log screen')
+    : pass('no dashboard markup leaks into the log screen');
+
+  api.setOpenDate(iso(daysAgo(0)));
+  const open = renders(withMarker, 'the log tab with a card open');
+  has(open, 'saveEntry(', 'the entry form is drawn');
+  has(open, 'Temp (', 'the form carries the ca2 fields');
+
+  // A migrated row can hold a value this app never offers — an old mucus
+  // wording, a cervix note ca2 folded into the Note. Opening such a row must
+  // not rewrite it to the first option, and saving an unrelated field must not
+  // carry it along. (Target 7; the live half is Tools/verify-proxy.js.)
+  const awkward = {
+    Temp: '', Time: '', Flow: '',
+    'Cervical Mucus': 'Lotiony',
+    Ovulation: 'TRUE',
+    Note: 'cervix: high and open',
+  };
+  const form = api.entryFormHTML(iso(daysAgo(1)), awkward);
+  /<option value="Lotiony" selected>/.test(form)
+    ? pass('a mucus value the option list does not know stays selected')
+    : fail('an unknown mucus value was not preserved in the form');
+  has(form, 'cervix: high and open', 'the migrated cervix note is shown, not dropped');
+  const d = api.entryDiff(awkward, { Temp: '98.10', Time: '', 'Temp Quality': [],
+    Exclude: false, Flow: '', 'Cervical Mucus': 'Lotiony', 'Cervix Texture': '',
+    'Cervix Position': '', Breasts: '', Ovulation: true, 'Cycle Start': false,
+    Note: 'cervix: high and open' });
+  JSON.stringify(Object.keys(d)) === JSON.stringify(['Temp'])
+    ? pass('saving a temp on that row sends the temp and nothing else')
+    : fail(`the diff carried more than the temp: ${JSON.stringify(d)}`);
+
+  api.setOpenDate(null);
+
+  // Back to the dashboard: the charts the log exit destroyed have to come back.
+  api.setScreen('dashboard', 'writer');
+  const back = renders(withMarker, 'dashboard after the log tab');
+  has(back, 'Safe Sex Status', 'the dashboard is whole again');
+  has(back, 'chartTimeline', 'the timeline canvas is back in the page');
+  api.setScreen('dashboard', null);
 }
 
 console.log(failed ? `\nrender self-check: ${failed} FAILED\n` : '\nrender self-check: PASS\n');

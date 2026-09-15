@@ -172,6 +172,7 @@ thead th {
 tbody td { padding: 7px 10px; border-bottom: 1px solid #f0eef5; vertical-align: top; white-space: nowrap; }
 tbody td.wrap { white-space: normal; }
 tbody tr:last-child td { border-bottom: none; }
+tbody tr            { background: #fff; }   /* so a sticky cell has a colour to inherit */
 tbody tr.row-blood    { background: #fff5f8; }
 tbody tr.row-ovul     { background: #f5fff6; }
 tbody tr.row-empty    { opacity: 0.38; }
@@ -338,6 +339,19 @@ tfoot td {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .chart-wrap { height: 210px; }
   .hide-sm { display: none; }
+
+  /* Even after hide-sm has done its work the log still shows eight columns on a
+     phone, so .tbl-wrap scrolls it sideways — and Temp, Flow and Quality scroll
+     away from the day they belong to. Pin Day and Date so a row always says what
+     it is. Column 2's offset has to equal column 1's width, which is why both are
+     written here as the same number rather than left to the content. */
+  .log-tbl th:first-child,  .log-tbl td:first-child,
+  .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) { position: sticky; z-index: 1; }
+  .log-tbl th:first-child,  .log-tbl td:first-child  { left: 0;    width: 52px; }
+  .log-tbl th:nth-child(2), .log-tbl td:nth-child(2) { left: 52px; border-right: 1px solid #ece8f2; }
+  /* The row carries the colour (blood, ovulation, empty); the cell borrows it,
+     or the scrolling columns would show through from underneath. */
+  .log-tbl td:first-child, .log-tbl td:nth-child(2)  { background: inherit; }
 }
 </style>
 </head>
@@ -808,6 +822,7 @@ let _savedNote   = null;   // { iso, action } of the last write that reached the
 let _catchupDays = 14;     // how far back the catch-up list runs
 let _byIso       = new Map();
 let _saving      = false;
+let _skippedRefreshes = 0;   // 10-minute refreshes passed over while a card is open
 
 const F_AT = col => ENTRY_FIELDS.findIndex(f => f.col === col);
 
@@ -945,6 +960,7 @@ function entryFormHTML(iso, row) {
 
 function openDay(iso) {
   _savedNote = null;   // acknowledged by moving on
+  _skippedRefreshes = 0;
   _openDate = _openDate === iso ? null : iso;
   render(allCycles);
 }
@@ -1299,7 +1315,7 @@ function render(cycles) {
         <select class="cycle-select" onchange="onLogCycleChange(this.value)">${cycleOptions}</select>
       </div>
       <div class="tbl-wrap">
-      <table>
+      <table class="log-tbl">
         <thead><tr>
           <th>Day</th><th>Date</th><th>Temp</th>
           <th class="hide-sm">Time</th>
@@ -1519,8 +1535,12 @@ function drawTimelineChart(cycles) {
 
 // ── Chart 2: Cycle overlay ─────────────────────────────────────────────────
 
+// Every cell here is sheet text, and since ca5 some of it is text Mike typed
+// into this app minutes earlier. A Note containing "<" broke the table before
+// this; escHTML is the same guard daySummary() already uses on the same values.
 function buildLogRows(cycle) {
   return cycle.map(r => {
+    const c = k => escHTML(r[k] || '');
     const empty = !hasData(r);
     const tag      = phaseTag(r);
     const rowClass = tag === 'Blood' ? 'row-blood' : tag === 'Ovulation' ? 'row-ovul' : empty ? 'row-empty' : '';
@@ -1530,19 +1550,19 @@ function buildLogRows(cycle) {
       ? '<span class="tag tag-ovul">Ovulation</span>'
       : '';
     return `<tr class="${rowClass}">
-      <td>${r.Day}</td>
-      <td style="white-space:nowrap">${r.Date}</td>
+      <td>${c('Day')}</td>
+      <td style="white-space:nowrap">${c('Date')}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
-      <td class="hide-sm" style="white-space:nowrap">${r.Time || ''}</td>
-      <td>${r.Flow || ''}</td>
-      <td class="hide-sm">${r['Cervix Texture'] || ''}</td>
-      <td class="hide-sm">${r['Cervix Position'] || ''}</td>
-      <td class="hide-sm">${r['Cervical Mucus'] || ''}</td>
-      <td class="hide-sm">${r.Breasts || ''}</td>
-      <td>${r['Temp Quality'] || ''}</td>
+      <td class="hide-sm" style="white-space:nowrap">${c('Time')}</td>
+      <td>${c('Flow')}</td>
+      <td class="hide-sm">${c('Cervix Texture')}</td>
+      <td class="hide-sm">${c('Cervix Position')}</td>
+      <td class="hide-sm">${c('Cervical Mucus')}</td>
+      <td class="hide-sm">${c('Breasts')}</td>
+      <td>${c('Temp Quality')}</td>
       <td>${r.Exclude === 'TRUE' ? 'yes' : ''}</td>
       <td>${cycleTag}</td>
-      <td class="wrap">${r.Note || ''}</td>
+      <td class="wrap">${c('Note')}</td>
     </tr>`;
   }).join('');
 }
@@ -2072,10 +2092,27 @@ bootFromCache();
 loadData();
 // The refresh re-renders from scratch, which would wipe a half-typed entry.
 // A day being edited is unsaved work; the dashboard can wait ten more minutes.
+//
+// But a card left open pauses the refresh for as long as it stays open, and the
+// staleness banner and the safety verdict go quiet with it. Re-rendering over
+// the form is still the wrong answer — so after half an hour, say so IN the form,
+// which is the one place the person who left it open is looking.
+const REFRESH_MS = 10 * 60 * 1000;
+const REFRESH_NAG_AFTER = 3;   // skips, i.e. 30 minutes
 setInterval(() => {
-  if (_openDate) return console.log('Refresh skipped: an entry is open.');
+  if (_openDate) {
+    _skippedRefreshes++;
+    const mins = Math.round(_skippedRefreshes * REFRESH_MS / 60000);
+    console.warn(`Refresh skipped: an entry is open (${mins} minutes now).`);
+    if (_skippedRefreshes >= REFRESH_NAG_AFTER) {
+      setHint(`This day has been open ${mins} minutes, so nothing on the dashboard — ` +
+              `including the safety status — has refreshed since. Save or close it to catch up.`);
+    }
+    return;
+  }
+  _skippedRefreshes = 0;
   loadData();
-}, 10 * 60 * 1000);
+}, REFRESH_MS);
 </script>
 </body>
 </html>
