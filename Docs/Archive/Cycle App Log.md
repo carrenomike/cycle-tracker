@@ -599,3 +599,17 @@ passing against broken code, which is the right way round, but worth noting for 
 
 All three self-checks PASS. Unverified in a browser — Mike's, and this one is worth a private-window test: open
 the link, confirm the address bar still shows `#t=`, reload, confirm the app still opens.
+
+**Confirmed live by Mike, 2026-09-15.** Private window: the link opens, `#t=` stays in the address bar, and a
+reload still opens the app. The path the addendum was written for works end to end.
+
+**Stubs amended in the same session** (README step 3), because ca7a changed facts they assert:
+`slice-ca4` — the warning banner is now capped at 4, so any warning ca4 adds competes for those slots.
+`slice-ca5` — "the token lives in `localStorage`" is no longer always true; read `TOKEN`, never the key directly,
+or the write path breaks for exactly the users whose read path still works.
+`slice-ca6` — a queue message pushed onto `_dataWarnings` can now be truncated away behind four bad rows, which is
+the silent failure that slice exists to prevent. It needs its own argument or an exemption from the cap.
+
+That last one is the ca7a finding most likely to bite: the cap was the right fix for a 165-line banner and is a
+trap for the next slice that reuses the list. Capping a display list is not the same decision as capping a
+*notification* list, and ca6 is about notifications.

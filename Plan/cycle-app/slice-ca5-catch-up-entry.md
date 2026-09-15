@@ -53,6 +53,10 @@ via the proxy in this slice — the offline queue and unsent banner are slice 6.
 - Writes cannot use JSONP (it is GET-only). The write path needs `fetch` against the `/exec` URL, so confirm CORS
   behaves from GitHub Pages before building the UI on top of it — this is the slice's first unknown.
 - The token lives in `localStorage` under `cycleToken`, read once into `TOKEN` at startup by `bootstrapToken()`.
+  **Amended by ca7a (2026-09-15): it is not always in `localStorage`.** When the store refuses the write (private
+  mode, storage blocked), the token exists only in the `TOKEN` const and in the `#t=` fragment, which
+  `bootstrapToken()` now deliberately leaves in the address bar. Read `TOKEN`, never `localStorage.cycleToken`
+  directly, or the write path breaks for exactly the users the read path still works for.
 - `Tools/verify-proxy.js` is the harness to extend for the write endpoint; it already has the retry logic.
 - Phone-first: thumb-reachable, minimal typing, no tiny tap targets.
 

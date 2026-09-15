@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** ca7a reviewed `24f6067..HEAD` — 0 unreviewed app lines. Next checkpoint review is ca8.
+**Last reviewed commit:** 4050005 (ca7a reviewed `24f6067..4050005`) — ~81 unreviewed app lines, ca7a's own fixes. Next checkpoint review is ca8.
 
 ## Done
 _(One line per slice. Detail lives in the archive log.)_
@@ -16,7 +16,7 @@ _(One line per slice. Detail lives in the archive log.)_
 - **ca2a** — `Time` recovered from Mike's xlsx export (88 values, the only loss); `migrate-sheet` carries it and refuses unmapped columns.
 - **ca3b** — review of `3ee13e2..HEAD`, all 5 targets resolved. PASS live 2026-09-14.
 - **ca7** — pulled forward ahead of ca4. Display cache `cycleCache` (dropped on a `PROXY_URL` change), dismissible dated banner carrying ca3a's warnings, 3-day "Out of date" expiry, 20s timeout that self-reloads once past the browser cache. New `Tools/staleness-selfcheck.js`. Tirzah's aeroplane-mode check outstanding.
-- **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: an unsaved token was scrubbed from the address bar and then lost on reload; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 6 checks added, all three self-checks PASS.
+- **ca7a** — review of `24f6067..HEAD`. Targets 1/2/5 clean. 3 fixed: an unsaved token was scrubbed from the address bar and then lost on reload; a full store blocked saving a new link (now drops the cache and retries); the warning banner was unbounded (capped at 4 + a count). 8 checks added, all three self-checks PASS. Private-window reload confirmed by Mike 2026-09-15.
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_

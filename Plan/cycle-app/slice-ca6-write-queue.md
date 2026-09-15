@@ -50,6 +50,11 @@ Slice ca5 landed.
 - **`_dataWarnings` is already the list of "things the user should see about this data."** ca3a's dropped-row and
   bad-yes/no messages go through it. A stuck or partially-failed flush is the same kind of message — consider
   pushing to it rather than building a third mechanism.
+  **Trap added by ca7a (2026-09-15):** `bannerHTML` now truncates that list to `MAX_BANNER_WARNINGS` (4). A queue
+  message pushed onto `_dataWarnings` can therefore be silently dropped behind four bad rows — which is precisely
+  the silent failure this slice exists to prevent. If the queue message routes through `_dataWarnings`, it must be
+  exempt from the cap or carried in its own argument. `_dataWarnings` is also cleared at the top of every
+  `renderPayload()`, so anything pushed outside a parse does not survive the next 10-minute refresh.
 - **The display cache ca7 wrote is `localStorage.cycleCache`**, one record `{proxy, at, cols, rows}`, written only
   after a payload actually renders and refused if `proxy` no longer matches `PROXY_URL`. The queue must be its own
   key: ca7's write path deliberately drops **only** `cycleCache` on a quota error, so that recovery must never be

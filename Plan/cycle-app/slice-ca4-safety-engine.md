@@ -149,6 +149,10 @@ that trail the end of cycles 3 and 4.
   `_dataWarnings` and still calls `console.warn`. When this slice deletes the `Cycle` half of the adapter it also
   deletes the Ovulation-and-bleeding collision `warn()` — that is expected; leave `warn()` itself and the two
   `flag()` / unreadable-date calls, which feed the banner ca3a asked for.
+- **Added by ca7a (2026-09-15): the banner shows at most `MAX_BANNER_WARNINGS` (4) of those warnings**, plus an
+  "…and N more" line. One malformed column warns once per row, so an uncapped list was a 165-line banner. The cap
+  is in `bannerHTML`, not in `warn()` — the console still receives every one. If this slice adds warnings, they
+  compete for those four slots; do not raise the cap to make room without deciding what the reader sees first.
 - **`renderPayload(cols, rows)` is now the single path from rows to a drawn dashboard**, used by both the live read
   and the cached fallback. Anything this slice adds between parsing and `render()` belongs there, or the offline
   view will quietly disagree with the live one.
