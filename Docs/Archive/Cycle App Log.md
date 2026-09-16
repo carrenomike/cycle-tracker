@@ -1797,3 +1797,96 @@ middle of the run. `queue-selfcheck` had been carrying a local fix for this sinc
 in the harness, where every check gets it: timers under 5s really run, the page's 20s load timer and 10-minute
 refresh stay no-ops. That is the fourth false green of this shape in this plan, and the first one fixed at the
 root.
+
+## ca8 — the whole-plan review of `1065c1e...HEAD` (2026-09-15, commit 830a537)
+
+The final review slice. Not a hunt for fresh bugs in one file but for **drift between files**: a helper reused
+past the assumptions of the slice that wrote it, a guard one slice relaxed that a later one leans on, and a gap
+between what the Apps Script sends and what the client parses. Everything in `index.html`, `Apps Script/Code.gs`,
+`sw.js`, `Tools/verify-proxy.js`, `deploy.bat`, `verify.bat` and `manifest.json` was read end to end first.
+
+**One defect, and it was in the check, not the app.** `Tools/verify-proxy.js` only *looked* like it retried a
+request that never came back. `flakyFetch` took the caller's `init` object — including its
+`AbortSignal.timeout(45000)` — and handed the same object to every recursive retry. An `AbortSignal` that has
+fired stays fired forever, so attempts 2, 3 and 4 each started with a cut-off that was already spent and rejected
+instantly with the same `TimeoutError`. The run printed
+
+```
+  retry  no answer in 45s from Google, attempt 1 — waiting 1s
+  retry  no answer in 45s from Google, attempt 2 — waiting 2s
+  retry  no answer in 45s from Google, attempt 3 — waiting 3s
+```
+
+in rapid succession, having really waited once. **This is the explanation for ca11's "four requests that got no
+answer at all"**: three of those four were never sent to Google at all — they were aborted before they left.
+
+Verified rather than reasoned, per the standing rule. A throwaway script reused one fired signal on a second
+`fetch`:
+
+```
+aborted: true  reason: TimeoutError
+reused signal rejected after 73 ms with TimeoutError
+```
+
+The fix is small and the direction matters: the cut-off is now built **inside** `flakyFetch`, one per attempt,
+which is what `postOnce()` in `index.html` has done since ca10. The app had it right; only the verifier drifted.
+That is precisely the failure the slice names — *a flake the verifier tolerates and the app calls a failure means
+the verifier is not verifying the app* — arriving inverted: a flake the **app** survives and the **verifier**
+calls fatal. Both callers stopped passing a signal in.
+
+**Sibling check.** Every `AbortSignal`, `new Request` and `signal:` in the repo was grepped. Two sites only:
+`postOnce()` (correct — a fresh signal per call, and the call *is* the attempt) and the one fixed here. The JSONP
+read retry was checked too and is clean for the same reason in a different shape: each attempt builds a new
+`<script>` element, removes the previous one, clears the previous timer and neuters the previous callback, so no
+one-shot object survives into the next attempt.
+
+**The checks that missed it.** Nothing here had ever *executed* `flakyFetch` — it only ran inside `verify.bat`,
+against the live network, where a fast failure looks like a slow one that gave up. So:
+
+- The retry rule in `verify-proxy.js` is now a marked `>>> RETRY` block with its three numbers as named constants
+  (`RETRY_ATTEMPTS = 4`, `RETRY_PAUSE_MS = 1000`, `ATTEMPT_TIMEOUT_MS = 45000`) instead of `4` and `1000` and
+  `45000` spelled out mid-expression, where they could not be compared to anything.
+- New `Tools/retry-selfcheck.js` extracts that block and runs it verbatim with `fetch`, `setTimeout` and `console`
+  passed in as parameters — stubs for the network and for time, so the real one-second backoffs are asserted
+  without waiting six seconds — while `AbortSignal` stays **real**, because the bug only exists against the real
+  one. It asserts four attempts on silence, a thrown fourth, a cut-off on every attempt, no attempt starting
+  already aborted, **four distinct signal objects**, backoff `[1000, 2000, 3000]`, the 404/5xx flake retried and
+  a 403 not retried. It also holds the three numbers against `index.html`'s copies, so the two files cannot drift
+  again without a check going red.
+- Mutation-tested: restoring the old caller-supplied signal turns *each attempt gets its own cut-off* red and
+  leaves the other twenty green. The distinct-object assertion is the one that catches it; *not aborted on entry*
+  does **not**, because a stubbed `fetch` returns before a real 45-second timer could fire.
+
+**Nothing gated a deploy.** The nine self-checks were run by hand, one node command each, and `deploy.bat` pushed
+whatever was in the tree. ca4 shipped a blank dashboard that way. New `checks.bat` runs every
+`Tools\*-selfcheck.js`, names the ones that failed, and `deploy.bat` now calls it first and refuses to commit or
+push on a failure.
+
+**Held against the real data.** `verify.bat` was run end to end on the live sheet and passed every check. The
+safe window opens on cycle days **24 / 22 / 30 / 37 / 30**; with the ovulation marker stripped from every row,
+**no cycle opens a window at all** (`[null,null,null,null,null]`); three-over-six fires on 24 / 21 / 30 / 37 / 30,
+so it only ever delayed an opening and never caused one; the opening bleed runs end on 6 / 6 / 6 / 5 / 7 and rule
+1 reads nothing else. The run also survived, out loud, **two 404s from the second hop** — each followed by a
+genuine one-second wait, which is the fixed retry doing its job — and **three phantom refusals**, each re-sent
+once and confirmed. Sheet back at 169 rows, sentinel deleted, nothing left behind.
+
+**Failure paths.** Every one was traced to something a person can see: bad token, missing token, unconfigured
+server, a read that never answers (20s, one self-reload past the browser cache, then a message), a network
+failure, a malformed payload, a refused write, an unconfirmed write, a storage refusal that would lose unsent
+work, an unreadable queue, a stuck queue and a stale cache. No silent swallow found. The one path that ends only
+in the console — a service-worker install failing — is deliberate and was settled in ca9.
+
+**Secrets.** Clean. The only long token-shaped string in the repo is the `/exec` URL in `index.html`, public by
+design; `Apps Script/Code.gs` carries blank constants; the sheet ID appears nowhere outside the already-burned
+old one quoted in ca2's slice file. `%USERPROFILE%\.cycle-proxy.txt` is still outside the repo, and `verify.bat`
+was run through it without the tokens ever entering this session.
+
+**Three things looked at and left alone**, each written into STATE's open deviations with its reason: a confirmed
+`read-only` forgets the remembered role but does not redraw (redrawing would erase the only on-screen explanation
+of the refusal); the offline shell has no cut-off of its own (falling back to cache on a timer is how a phone gets
+pinned to an old safety engine, which is the worse failure); and the worker re-caches whatever Chrome's own HTTP
+cache hands it, bounded at the ten minutes GitHub Pages allows and self-correcting on the next open.
+
+**The live phone test was waived by Mike**, and the reason it is safe to waive is on the record: ca8 changed no
+file the phone loads. `index.html`, `sw.js`, `manifest.json` and `Code.gs` are byte-identical to ca11's. The
+whole diff is the verifier, a new check, a new check runner and the deploy gate — plus this log and STATE.
