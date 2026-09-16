@@ -30,6 +30,10 @@ never pushed — `origin/main` was still `e324f09` at the time).
   one attempt and treats anything else as final.
 - `postEntry()` (`index.html:1219`) is the single write path — `saveEntry` and `flushQueue` both go through it, so
   a retry belongs there and nowhere else.
+- **ca9a added a second job to `postEntry()`** (2026-09-15, still at `index.html:1219`): it now parses the reply
+  itself, and on a refusal calls `forgetRole()` — the server proving a remembered `writer` wrong is the one signal
+  the read path can never see. A retry wrapper must sit **outside** that parse, not around it: re-entering it on a
+  retry would re-fire `forgetRole()`, and short-circuiting it would leave a stale `writer` role behind a refusal.
 - `AbortSignal.timeout(30000)` in the app; `verify-proxy` allows 45000.
 - **Re-sending is already safe and the code says so in three places.** `doPost` is update-or-insert keyed on the
   date, under a script lock, and only changed fields are sent — so a retry rewrites the same row rather than adding
