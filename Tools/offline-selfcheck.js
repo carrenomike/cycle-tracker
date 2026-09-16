@@ -27,10 +27,20 @@ function loadWorker(opts) {
   const listeners = {};
   const store = new Map(opts.cached || []);   // full url -> body string
   const log = { puts: [], deleted: [], networkHits: [] };
+  const cannotCache = u => (opts.uncacheable || []).indexOf(u) >= 0;
 
   const cacheApi = {
     open: async () => ({
-      addAll: async urls => { for (const u of urls) store.set(u, 'precached'); },
+      // The real addAll is atomic: one URL it cannot fetch and NOTHING is
+      // stored. `opts.uncacheable` is how a bad minute at the CDN is spelled.
+      addAll: async urls => {
+        for (const u of urls) if (cannotCache(u)) throw new Error('could not fetch ' + u);
+        for (const u of urls) store.set(u, 'precached');
+      },
+      add: async u => {
+        if (cannotCache(u)) throw new Error('could not fetch ' + u);
+        store.set(u, 'precached');
+      },
       put: async (k, v) => { log.puts.push(String(k)); store.set(String(k), v); },
     }),
     keys: async () => opts.cacheNames || [],
@@ -85,6 +95,13 @@ async function ask(w, url, method) {
 // turn before reading the log. (Three checks in this plan have gone green on an
 // unresolved promise; this is the shape that does it.)
 const settle = () => new Promise(r => setImmediate(r));
+
+// Run the install handler and hand back whatever it rejected with, or null.
+async function install(w) {
+  let waited;
+  w.listeners.install({ waitUntil: p => { waited = p; } });
+  try { await waited; return null; } catch (e) { return e; }
+}
 
 const PAGE  = 'https://example.github.io/cycle/';
 const PROXY = 'https://script.google.com/macros/s/AKfy.../exec';
@@ -155,11 +172,36 @@ const CHART = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js
 
   console.log('\n--- A NEW SHELL RETIRES THE OLD ONE ---');
   {
-    const w = loadWorker({ cacheNames: ['cycle-shell-v0', 'cycle-shell-v1', 'something-else'] });
+    // github.io serves every one of Mike's repos from ONE origin, and
+    // CacheStorage is per-origin: an unprefixed sweep would delete another
+    // site's offline cache from inside this app. (ca9a)
+    const w = loadWorker({ cacheNames: ['cycle-shell-v0', 'cycle-shell-v1', 'some-other-app'] });
     await w.listeners.activate({ waitUntil: p => p });
     await settle();
-    is(w.log.deleted.join(','), 'cycle-shell-v0,something-else',
-      'activate deletes every cache except the current shell');
+    is(w.log.deleted.join(','), 'cycle-shell-v0',
+      'activate retires older shells of THIS app only');
+  }
+
+  console.log('\n--- INSTALLING THE SHELL (ca9a) ---');
+  {
+    // Chart.js comes from a third party's CDN. Inside addAll, a bad minute
+    // there fails the install and the app loses its offline shell ENTIRELY,
+    // index.html included — for the one file the page already copes without.
+    const w = loadWorker({ uncacheable: [CHART] });
+    is(await install(w), null, 'a CDN that will not answer does not fail the install');
+    is(w.store.has('index.html'), true, 'and the same-origin shell is cached regardless');
+  }
+  {
+    // The other half of that bargain is unchanged: a half-populated shell looks
+    // installed and then fails on one file, so it must not install at all.
+    const w = loadWorker({ uncacheable: ['index.html'] });
+    is(!!(await install(w)), true, 'a same-origin file that will not cache still fails the install');
+    is(w.store.size, 0, 'and nothing is left half-stored');
+  }
+  {
+    const w = loadWorker({});
+    is(await install(w), null, 'with everything reachable, the install succeeds');
+    is(w.store.has(CHART), true, 'and Chart.js is in the shell');
   }
 
   console.log('\n--- THE PAGE REGISTERS IT, GUARDED ---');
@@ -194,6 +236,29 @@ const CHART = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js
     await settle();
     is(/offline shell could not be installed/.test(logged), true,
       'a failed registration is reported, not swallowed');
+  }
+  {
+    // register() resolves as soon as the worker STARTS installing, so it
+    // resolving is not evidence the shell was cached. A failed install ends
+    // with that worker "redundant", and that is the only signal there is. (ca9a)
+    let logged = '';
+    let onChange = null;
+    const worker = { state: 'installing',
+      addEventListener: (n, fn) => { if (n === 'statechange') onChange = fn; } };
+    bootPage({
+      env: {
+        window: { addEventListener() {}, isSecureContext: true },
+        navigator: { serviceWorker: { register: () => Promise.resolve({ installing: worker }) } },
+        console: Object.assign({}, console, { error: (...a) => { logged += a.join(' '); } }),
+      },
+      expose: '1',
+    });
+    await settle();
+    is(typeof onChange, 'function', 'the page watches the worker it just registered');
+    worker.state = 'redundant';
+    if (onChange) onChange();
+    is(/failed to install/.test(logged), true,
+      'a worker that registers and then fails to install is reported, not silent');
   }
 
   console.log(failed ? `\n${failed} CHECK(S) FAILED\n` : '\nAll checks passed\n');

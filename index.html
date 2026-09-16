@@ -1223,8 +1223,15 @@ function postEntry(iso, values) {
     body: JSON.stringify({ t: TOKEN, date: iso, values: values }),
     signal: AbortSignal.timeout(30000),
   }).then(res => res.text().then(text => {
-    try { return JSON.parse(text); }
+    let reply;
+    try { reply = JSON.parse(text); }
     catch (e) { throw new Error(`the server replied with something that is not an answer (HTTP ${res.status})`); }
+    // `read-only` is the third refusal shape, and the only one the read path
+    // can never see: it is the server proving a remembered "writer" wrong. Both
+    // callers below turn this into a refusal they show; forgetting the role is
+    // what stops the next cold start offering the Log tab all over again.
+    if (reply && reply.ok !== true && isRefusal(reply.error)) forgetRole();
+    return reply;
   }));
 }
 
@@ -2215,6 +2222,20 @@ function bootstrapToken() {
   const m = /[#&]t=([^&]*)/.exec(location.hash);
   if (m) {
     token = decodeURIComponent(m[1]).trim();
+    // The remembered role and the saved dashboard were earned by the PREVIOUS
+    // token, and neither key is keyed on one — both carry only PROXY_URL. Swap
+    // Mike's link for Tirzah's in the same browser and the role would go on
+    // saying "writer" until the first successful read; a cold start with no
+    // signal inside that window draws her the Log tab and the entry form, and
+    // it self-corrects online, which is exactly why it would sit there unseen.
+    // The unsent QUEUE is deliberately not dropped: it is unsaved work, and a
+    // link that cannot write refuses it rather than sending it.
+    try {
+      if (localStorage.getItem(TOKEN_KEY) !== token) {
+        localStorage.removeItem(ROLE_KEY);
+        localStorage.removeItem(CACHE_KEY);
+      }
+    } catch (e) { console.error('Could not clear the previous link’s saved state:', e); }
     try {
       localStorage.setItem(TOKEN_KEY, token);
       _tokenPersisted = true;
@@ -2369,6 +2390,16 @@ function rememberRole(role) {
   } catch (e) { console.error('Could not save which kind of link this is:', e); }
 }
 
+// A refusal is the server saying this link is not what the app thought it was.
+// The remembered role outlives the token that earned it, so it has to go with
+// the refusal — otherwise the next cold start with no signal draws the entry
+// form again, over a link the server has already rejected.
+function forgetRole() {
+  _role = null;
+  _tab = 'dashboard';
+  rememberRole(null);
+}
+
 function recallRole() {
   try {
     const v = String(localStorage.getItem(ROLE_KEY) || '').split('\n');
@@ -2481,9 +2512,7 @@ function loadData(attempt) {
         // server has just said this link is not a working writer link, so a
         // remembered role from an earlier session is wrong and must go, or
         // showMessage() would draw the entry form over the refusal.
-        if (err === 'not-configured' || err === 'no-access') {
-          _role = null; _tab = 'dashboard'; rememberRole(null);
-        }
+        if (err === 'not-configured' || err === 'no-access') forgetRole();
         if (err === 'not-configured') {
           return showMessage('This app is not finished being set up.',
             'The server has no access tokens configured yet.', false);
@@ -2567,6 +2596,18 @@ function bootFromCache() {
 // still works online — but it is the whole of this feature, so it is loud.
 if (window.isSecureContext && navigator.serviceWorker) {
   navigator.serviceWorker.register('sw.js')
+    .then(reg => {
+      // register() resolves as soon as the worker STARTS installing, so it
+      // resolving says nothing about whether the shell was actually cached. A
+      // failed install ends with that worker "redundant", and that state change
+      // is the only signal there is — without this, ca9 can fail in full
+      // silence while deploy.bat reports success.
+      const w = reg && reg.installing;
+      if (w && w.addEventListener) w.addEventListener('statechange', () => {
+        if (w.state === 'redundant') console.error('The offline shell failed to install — ' +
+          'this app will not open without a signal.');
+      });
+    })
     .catch(e => console.error('The offline shell could not be installed — ' +
       'this app will not open without a signal:', e));
 }

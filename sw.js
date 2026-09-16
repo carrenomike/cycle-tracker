@@ -14,16 +14,25 @@
 // those fall straight through: cycleCache stays the only copy of sheet data on
 // the phone, and the staleness banner keeps reporting on all of it.
 
-const CACHE = 'cycle-shell-v1';
+const CACHE_PREFIX = 'cycle-shell-';
+const CACHE = CACHE_PREFIX + 'v1';
 const CHART = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
-const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', CHART];
+// Same-origin only. Chart.js is cached too, but separately — see below.
+const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {
   // addAll is all-or-nothing on purpose: a half-populated shell is worse than
   // none at all, because it looks installed and then fails on one file.
+  //
+  // Chart.js is NOT part of that bargain. It is a third party's CDN, and inside
+  // addAll a bad minute at jsdelivr fails the install — which costs the offline
+  // app ENTIRELY, index.html included, for the one file the page already copes
+  // with being absent (chartsUnavailable() draws a message instead of throwing).
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(SHELL))
+      .then(c => c.addAll(SHELL).then(() => c.add(CHART).catch(err =>
+        console.warn('[sw] Chart.js was not cached — the dashboard will draw ' +
+          'without its charts offline:', err))))
       .then(() => self.skipWaiting())
       .catch(err => { console.error('[sw] the shell could not be cached:', err); throw err; })
   );
@@ -31,9 +40,14 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   // Drop every older shell, so bumping CACHE above is all it takes to retire one.
+  // Only OURS: github.io serves every one of Mike's repos from a single origin
+  // and CacheStorage is per-origin, so an unprefixed sweep would delete another
+  // site's offline cache from inside this app.
   e.waitUntil(
     caches.keys()
-      .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(ks => Promise.all(ks
+        .filter(k => k !== CACHE && k.indexOf(CACHE_PREFIX) === 0)
+        .map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

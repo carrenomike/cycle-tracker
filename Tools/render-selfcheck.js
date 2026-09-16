@@ -27,7 +27,8 @@ const EXPOSE =
      setQueue: (entries, note) => { _queue = entries; _queueNote = note || null; },
      queueBannerHTML, failLoad, switchTab, openDay, saveEntry, rememberRole,
      sheetCallback: r => window._sheetCallback(r),
-     getQueue: () => _queue, getRole: () => _role, getTab: () => _tab }`;
+     getQueue: () => _queue, getRole: () => _role, getTab: () => _tab,
+     stored: k => localStorage.getItem(k) }`;
 const api = bootPage({ expose: EXPOSE });
 const app = api._el('app');
 
@@ -356,6 +357,70 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
       ? fail('the entry form was drawn over a rejected link')
       : pass('the entry form is not drawn over a rejected link');
     is_(b.getRole(), null, 'and the remembered writer role is forgotten');
+  }
+
+  console.log('\n--- A NEW LINK DOES NOT INHERIT THE OLD ONE’S ROLE (ca9a) ---');
+  {
+    // `cycleRole` and `cycleCache` are both keyed on PROXY_URL, never on the
+    // token. Swap Mike's link for Tirzah's in one browser and, until the first
+    // successful read, the role still says "writer" — so a cold start with no
+    // signal in that window draws HER the Log tab and the entry form. It
+    // self-corrects online, which is exactly why it would sit there unnoticed.
+    const store = makeStore();
+    store.setItem('cycleToken', 'writer-token');
+    store.setItem('cycleQueue', JSON.stringify({
+      entries: [{ iso: '2026-09-01', values: { Temp: '97.50' }, tries: 1 }], note: null }));
+    const a = bootPage({ store, expose: EXPOSE });
+    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    is_(a.stored('cycleRole') !== null, true, 'the writer link remembered its role');
+    is_(a.stored('cycleCache') !== null, true, 'and saved a copy of the dashboard');
+
+    const atHash = t => ({ location: { hash: '#t=' + t, pathname: '/', search: '', replace() {} } });
+    const swapped = bootPage({ store, env: atHash('reader-token'), expose: EXPOSE });
+    is_(swapped.stored('cycleRole'), null, 'a DIFFERENT token clears the remembered role');
+    is_(swapped.stored('cycleCache'), null, "and the previous link's saved dashboard");
+    is_(swapped.getRole(), null, 'so the new link has no role to open the Log tab with');
+    is_(swapped.getQueue().length, 1,
+      'the unsent queue survives — it is unsaved work, and a reader link refuses it rather than losing it');
+
+    // The common case must not throw the cache away every time Mike reopens
+    // his own link, or the offline shell would be empty on every visit.
+    const s2 = makeStore();
+    s2.setItem('cycleToken', 'writer-token');
+    const b = bootPage({ store: s2, expose: EXPOSE });
+    b.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    const again2 = bootPage({ store: s2, env: atHash('writer-token'), expose: EXPOSE });
+    is_(again2.getRole(), 'writer', 're-opening the SAME link keeps the role');
+    is_(again2.stored('cycleCache') !== null, true, 'and the saved dashboard');
+  }
+
+  console.log('\n--- THE WRITE PATH REFUSES: read-only (ca9a) ---');
+  {
+    // The third refusal shape, and the only one the READ path can never see:
+    // doPost answers `read-only` when a reader token tries to write. It is the
+    // server proving a remembered "writer" wrong, so the role must go with it.
+    const store = makeStore();
+    store.setItem('cycleToken', 'a-token');
+    const a = bootPage({ store, expose: EXPOSE });
+    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+
+    const b = bootPage({
+      store,
+      fetch: () => Promise.resolve({ status: 200,
+        text: () => Promise.resolve(JSON.stringify({ ok: false, error: 'read-only' })) }),
+      expose: EXPOSE,
+    });
+    is_(b.getRole(), 'writer', 'it starts out remembering the writer role');
+    b.switchTab('log');
+    const today = iso(new Date());
+    b.openDay(today);
+    b._el('f0').value = '97.90';
+    await b.saveEntry(today);
+    is_(b.getQueue().length, 0, 'a refusal is never queued');
+    is_(b.getRole(), null, 'and the remembered writer role is forgotten');
+    is_(b.getTab(), 'dashboard', 'the Log tab is left');
+    is_(b.stored('cycleRole'), null,
+      'in storage too, so the next cold start does not offer the entry form again');
   }
 
   console.log(failed ? `\nrender self-check: ${failed} FAILED\n` : '\nrender self-check: PASS\n');

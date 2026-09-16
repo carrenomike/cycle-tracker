@@ -1448,3 +1448,107 @@ on a confirmed reply.
 Still outstanding: **Tirzah's aeroplane-mode check from ca7.** ca9 changed what
 she sees on a cold start, so it now covers ca9 as well — dated dashboard, no tab
 bar, no entry form.
+
+## ca9a — checkpoint review of `55db0c4..HEAD` (2026-09-15)
+
+~570 lines, under the 1,500 threshold, but the second question was yes: ca9 put a
+shared helper (`redraw()`) behind five call sites, gave `showMessage()` a much
+larger job, and added a stored fact that outlives the token that earned it. That
+is the profile that produced every defect ca4a, ca5a and ca6a found.
+
+### Cleared by reading
+
+**`redraw()` and its five call sites.** Every one of `switchTab`, `openDay`,
+`showMoreDays`, `saveEntry`'s offline branch and `redrawAfterQueueChange` wants
+the message repeated rather than a loud failure: each is reachable *only* from a
+screen `showMessage()` drew, and the last-resort branch (`console.error` plus
+`showError`) covers the impossible case rather than leaving a blank screen.
+Nothing calls `render()` any more except `renderPayload()`, which is the one
+place rows become a dashboard.
+
+**`entryScreenHTML(allCycles || [])`.** With `[]` the `_byIso` map is empty,
+`dayNumberFor()` returns `null` for every day and `daySummary(null)` is "not
+logged" — all of which are true offline. `entryProblem()` and `entryDiff()` look
+at the form and the one row, never at the cycles, so a save from that screen is
+the same save. And because only changed fields are sent, a day that *is* already
+in the sheet is not blanked by being edited from a screen that cannot see it.
+
+**`page-harness.js`'s new `parentNode`.** No live defect: `chartsUnavailable()`
+only runs from the two draw functions, which only run once `render()` has written
+`#app` and both canvases exist. But the stub — like `getElementById()` before it —
+never answers null, so the guard it exercises can never be exercised *false*.
+Recorded as an open deviation rather than fixed: making the harness sharper is a
+slice of its own, and this is the shape of the false greens this plan keeps
+finding.
+
+### Fixed
+
+**1. The remembered role outlives the token that earned it.** Slice item 4 asked
+for this to be confirmed by reading, and it was worse than suspected: `cycleRole`
+and `cycleCache` are *both* keyed on `PROXY_URL` alone, and `bootstrapToken()`
+saves a new `#t=` over the old token without touching either. Paste Tirzah's
+reader link into the browser that held Mike's writer link and, until the first
+successful read, `recallRole()` still says `writer` and `bootFromCache()` still
+draws the previous token's dashboard. A cold start with no signal inside that
+window offers her the Log tab and the entry form.
+
+Fixed at the one place both keys route through rather than by keying each on the
+token: `bootstrapToken()` drops `cycleRole` and `cycleCache` when the arriving
+token differs from the stored one. Keying on the token would have put a second
+copy of the secret in a second key for no extra safety. The unsent **queue** is
+deliberately not dropped — it is unsaved work, and a link that cannot write
+refuses it rather than losing it.
+
+Note the asymmetry the slice named: this self-corrects the moment there is a
+signal, and it makes Tirzah's phone look *more* capable, not broken. "She'll say
+if it breaks" could never have caught it.
+
+**2. `read-only` is the third refusal shape, and the read path can never see
+it.** `doGet` answers only `not-configured` and `no-access`, both of which ca9
+already clears the role on. `doPost` also answers `read-only` — a reader token
+trying to write — which is the server proving a remembered `writer` wrong, and it
+is reachable precisely from the offline path finding 1 opens: the form is drawn
+from a remembered role, the save is queued, and the flush is refused. Nothing
+cleared the role, so every later cold start offered the form again. One shared
+`forgetRole()` (role, tab, stored key) now fires from `postEntry()` — the single
+point both `saveEntry` and `flushQueue` route through — as well as from the GET
+handler.
+
+**3. `sw.js`'s `activate` swept every cache on the origin.** `caches.keys()` is
+per-origin, and github.io serves *every* one of Mike's repos from
+`carrenomike.github.io`. An unprefixed `filter(k => k !== CACHE)` would delete
+another project's offline cache from inside this app. Now scoped to
+`cycle-shell-`. The self-check that asserted the old behaviour asserted a bug;
+it now asserts the scoping.
+
+**4. A third party's CDN could cost the whole offline shell, silently.**
+Chart.js was inside `addAll(SHELL)`, which is atomic on purpose — so one bad
+minute at jsdelivr fails the install and *nothing* is cached, `index.html`
+included, for the one file the page already copes without (`chartsUnavailable()`
+draws a message instead of throwing). Same-origin files keep the all-or-nothing
+bargain; Chart.js is a best-effort `add` with its own warning.
+
+And the failure was invisible from the page: `register()` resolves as soon as the
+worker *starts* installing, so ca9's `.catch` never fires on a failed install.
+The page now watches the installing worker for `redundant`, which is the only
+signal there is. This is the file that can make `deploy.bat` lie, so it does not
+get to fail quietly.
+
+### Checks
+
+15 added — 8 in `offline-selfcheck.js` (install with an unreachable CDN, install
+with an unreachable same-origin file, a clean install, origin-scoped `activate`,
+and the registered-then-redundant worker) and 7 in `render-selfcheck.js` (a new
+token clears role and cache but not the queue, the same token clears neither, and
+`read-only` forgetting the role in memory, in the tab and in storage). All 8
+mutations tested red first. All 8 self-checks PASS.
+
+### Outstanding
+
+**Tirzah's aeroplane-mode check is still deferred, not waived** (her phone is
+away for a few days). It now covers ca9 as well: dated dashboard, no tab bar, no
+entry form. The reader half of `render-selfcheck`'s cold-start section is the
+only thing standing in for it — and, after finding 1, that is a slightly stronger
+stand-in than it was.
+
+Live test of everything above is Mike's.
