@@ -95,7 +95,8 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 7a | `slice-ca7a-checkpoint-review.md` | Checkpoint review of `24f6067..HEAD` (ca7) — the cache, the expiry override, the reworked read path | 7 |
 | 9 | `slice-ca9-offline-shell.md` | Cold-start offline: a service-worker shell so the app opens with no signal. **Runs before 8** | 6, 7 |
 | 9a | `slice-ca9a-checkpoint-review.md` | Checkpoint review of `55db0c4..HEAD` (ca9) — `redraw()`'s five call sites, `showMessage()`'s new writer surface, the remembered role, `sw.js` as a deploy risk | 9 |
-| 8 | `slice-ca8-review.md` | Code review of the whole plan's committed diff | all, incl. 9 |
+| 10 | `slice-ca10-write-retry.md` | Retry the flaky Apps Script redirect hop; stop the queue claiming a write did not land when it did. **Runs before 8** | 5, 6 |
+| 8 | `slice-ca8-review.md` | Code review of the whole plan's committed diff | all, incl. 9 and 10 |
 
 Run in index order unless a "Depends on" column says otherwise. Slice 7 only needs the read path from slice 3, so
 it can be pulled forward if a stale-cache problem shows up sooner. The review slice is always last and always runs
