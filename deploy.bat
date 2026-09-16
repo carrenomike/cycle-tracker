@@ -1,6 +1,11 @@
 @echo off
 cd /d "%~dp0"
 
+REM Nothing goes to the phone that has not passed the offline checks. A broken
+REM safety engine deploys just as smoothly as a working one otherwise.
+call checks.bat
+if errorlevel 1 goto checksfail
+
 git add -A
 if errorlevel 1 goto fail
 
@@ -32,6 +37,16 @@ echo If the page looks unchanged, close the tab and reopen it - your phone
 echo may be showing you a saved copy of the old version.
 pause
 exit /b 0
+
+:checksfail
+echo.
+echo ***************************************************
+echo *** CHECKS FAILED - nothing was committed or    ***
+echo *** pushed. Fix the above, then run this again. ***
+echo ***************************************************
+echo.
+pause
+exit /b 1
 
 :fail
 echo.

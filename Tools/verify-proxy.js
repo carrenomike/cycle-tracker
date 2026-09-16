@@ -103,25 +103,38 @@ const loadSafety  = () => block('SAFETY',
 // 2026-09-15 it was a timeout, not a status, that failed this run. Re-sending is
 // safe on both sides — a read has no side effect, and a write to a date the
 // sheet already has rewrites that row rather than adding a second one.
+// The 45s cut-off is built here, per attempt, and not handed in by the caller.
+// An AbortSignal that has fired stays fired forever, so a signal made once
+// outside this function aborts every retry the instant it starts: the run
+// prints three retries in a few milliseconds and fails, having really waited
+// only once. index.html's postOnce() builds its signal inside the attempt for
+// this reason; this now matches it.
+// >>> RETRY — extracted and executed verbatim by Tools/retry-selfcheck.js, which
+// also holds these three numbers against index.html's copies. Keep the block
+// self-contained: it may only use fetch, setTimeout, console and AbortSignal.
+const RETRY_ATTEMPTS     = 4;
+const RETRY_PAUSE_MS     = 1000;
+const ATTEMPT_TIMEOUT_MS = 45000;
+
 async function flakyFetch(url, init, attempt = 1) {
   let res = null, timedOut = false;
-  try { res = await fetch(url, init); }
+  try { res = await fetch(url, { ...init, signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) }); }
   catch (e) {
-    if (e && e.name === 'TimeoutError' && attempt < 4) timedOut = true;
+    if (e && e.name === 'TimeoutError' && attempt < RETRY_ATTEMPTS) timedOut = true;
     else throw e;
   }
-  if (timedOut || ((res.status === 404 || res.status >= 500) && attempt < 4)) {
-    console.log(`  retry  ${timedOut ? 'no answer in 45s' : `HTTP ${res.status}`} from Google, ` +
-      `attempt ${attempt} — waiting ${attempt}s`);
-    await new Promise(r => setTimeout(r, attempt * 1000));
+  if (timedOut || ((res.status === 404 || res.status >= 500) && attempt < RETRY_ATTEMPTS)) {
+    console.log(`  retry  ${timedOut ? `no answer in ${ATTEMPT_TIMEOUT_MS / 1000}s` : `HTTP ${res.status}`} ` +
+      `from Google, attempt ${attempt} — waiting ${attempt}s`);
+    await new Promise(r => setTimeout(r, attempt * RETRY_PAUSE_MS));
     return flakyFetch(url, init, attempt + 1);
   }
   return res;
 }
+// <<< RETRY
 
 async function call(url, token) {
-  const res = await flakyFetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`,
-    { signal: AbortSignal.timeout(45000) });
+  const res = await flakyFetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`, {});
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const text = await res.text();
   try { return JSON.parse(text); }
@@ -142,10 +155,9 @@ async function post(url, body, confirming) {
   const res = await flakyFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    // A request that never comes back is cut off by flakyFetch, which reads
+    // exactly like a passing check that is slow if it is left to hang.
     body: JSON.stringify(body),
-    // Without this a request that never comes back leaves the run sitting on a
-    // blank line forever, which reads exactly like a passing check that is slow.
-    signal: AbortSignal.timeout(45000),
   });
   // An HTML page here means the deployment has no doPost — it is still on the
   // version from before ca5. Say that instead of "not JSON".
