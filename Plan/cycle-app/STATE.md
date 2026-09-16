@@ -4,7 +4,7 @@
 
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** HEAD (reviewed by ca9a). Unreviewed tally: ca10 (~150 lines, unreviewed). Next slice is **ca8**, the final review over `1065c1e...HEAD`, once Mike has passed ca10 live.
+**Last reviewed commit:** HEAD (reviewed by ca9a). Unreviewed tally: ca10 (~150 lines, unreviewed). Next slice is **ca11** (a refusal Google invents after the write has already landed — found while running `verify.bat` for ca10, reproduced on demand), then **ca8**, the final review over `1065c1e...HEAD`.
 ## Done
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2 + ca2a** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. `Time` was silently dropped, then recovered from Mike's xlsx export (88 values, the only loss); the script now carries it and refuses unmapped columns.
@@ -20,7 +20,7 @@
 
 ## Open deviations from spec
 _(Things later slices must know. One line each. Delete once resolved.)_
-- **`ok:true` and a timeout are both weak evidence** (ca6, ca10) — `ok:true` means the request was accepted, not that the sheet holds what was sent; a timeout means nothing came back, **not** that the write failed. The app now says only what it observed (`writeFailureKind`/`writeAttemptText`), and the retry rule is shared with `verify-proxy.js` — keep them in step or say why in both files.
+- **`ok:true`, a timeout and now a refusal are all weak evidence** (ca6, ca10, ca11) — `ok:true` means the request was accepted, not that the sheet holds what was sent; a timeout means nothing came back, **not** that the write failed. The app now says only what it observed (`writeFailureKind`/`writeAttemptText`), and the retry rule is shared with `verify-proxy.js` — keep them in step or say why in both files. **A `no-access` is not proof either** (ca11, proven 2026-09-15): Apps Script runs the write on the first hop and 302s to a one-time answer URL, and a second fetch of that URL runs `doGet` with no token — so a landed write can come back refused. Until ca11 lands, a refusal from `doPost` may be a phantom.
 - **A revoked sheet permission reads as staleness** — the proxy answers `read-failed:`, so the viewer gets a dated cached dashboard, not an error. Correct for Tirzah; a banner is not proof of a token problem.
 - **Two known limits in how `writeRow` reads the sheet** (ca6a) — a Note cell that already holds a formula is normalised, not recovered (`getValues()` turns `=1+1` into `2` and RAW stores the text `"2"`; ca5a stops new ones, and a `getFormulas()` read on every write is not worth it); and `unreadableDates` under-reports, because the date scan `break`s on the matched row. Both only have to send you to look at the sheet.
 - **`page-harness.js` answers more than a real DOM** (ca9a) — `getElementById()` never returns null and `parentNode` always resolves, so a check can go green on a lookup that would be null on the phone. No live defect today (`chartsUnavailable()` only runs once the canvases are drawn), but it is the shape of the false greens this plan keeps finding.

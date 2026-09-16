@@ -1689,3 +1689,44 @@ All 8 self-checks PASS.
 Mike's live test. The flake is intermittent, so the honest exit is the console
 showing `Write attempt 1 … trying again` at least once in normal use — not a
 one-off green run. `verify.bat` still needs a pass on the real endpoint.
+
+## ca10 postscript — the refusal Google invents (2026-09-15)
+
+`verify.bat` was run four times against the live endpoint after ca10 was committed. Three runs failed, none of
+them ca10's doing:
+
+1. A read that never came back. `verify-proxy` retried a 404 or a 5xx from the flaky hop but not silence — and
+   silence is what ca10 was written about. Fixed here: one `flakyFetch()` now serves both `call()` and `post()`,
+   and retries a `TimeoutError` on the same four attempts and `attempt * 1000` backoff. It logs
+   `retry  no answer in 45s from Google, attempt N`, and it fired visibly on the next run.
+2. A reader-token read that exhausted all four attempts. Google, not us.
+3. **Twice: a write refused with `no-access`, using the writer token that had worked seconds earlier in the same
+   run.** New, and worse than either.
+
+(3) was reproduced on demand. The mechanism, from four scratchpad probes:
+
+- `/exec` answers a POST with a **302** (39 of 40; the 40th timed out), not a 307/308.
+- The script therefore runs on the **first** hop. The redirect points at a one-time URL holding the answer that
+  was already computed; the body is never re-sent. That is why a POST through `fetch` gets a `doPost` reply at all
+  despite a 302, and why 80 ordinary POSTs produced no phantom.
+- Fetching that one-time URL a **second** time does not replay the answer. It runs `doGet` with no parameters:
+
+  | POST | 1st GET of the redirect target | 2nd GET of the same target |
+  |---|---|---|
+  | writer token | `bad-request: date must be YYYY-MM-DD` | `no-access` |
+  | junk token | `no-access` | an HTML page |
+
+  A malformed date throughout, so nothing was written; `bad-request` is proof the token was accepted.
+
+So `no-access` has two meanings — a wrong token, or an answer link fetched twice — and the reply cannot tell them
+apart. The second fetch is not something this code asks for, but an HTTP stack re-issuing a request on a
+connection it thinks died is enough, and it happened twice in four runs.
+
+The damage is ca10's own lesson wearing a different costume: the write has **already landed** when this reply
+arrives. Today the app treats a refusal as final and never retries it (ca10, deliberately), never queues it (ca6),
+and forgets the remembered writer role on it (ca9a). One hiccup can therefore demote Mike to "no access" and drop
+a confirmation for a row that is sitting in the sheet.
+
+Not fixed here. It is a change to the refusal contract that ca6, ca9a and ca10 all lean on, so it is
+`slice-ca11-phantom-refusal.md`: confirm a refusal with one more send before believing it, and only a second
+refusal reaches Mike, the queue or `forgetRole()`.

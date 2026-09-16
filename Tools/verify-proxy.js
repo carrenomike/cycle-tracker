@@ -90,7 +90,7 @@ const loadSafety  = () => block('SAFETY',
   '{ isOv, isBleeding, detectOvDay, threeOverSixDay, safeWindowOpensOn, openingBleedEnd }');
 
 // Apps Script redirects /exec to a second Google host, and that second hop
-// intermittently 404s or 5xxs under back-to-back requests. Retry a few times,
+// intermittently 404s, 5xxs, or never answers at all. Retry a few times,
 // out loud — a genuine 404 still fails the run rather than hiding in here.
 // ca10 gave the app the same rule, in index.html's postEntry(): 4 attempts, the
 // same attempt * 1000 backoff, said out loud. Keep the two in step — a flake
@@ -98,14 +98,30 @@ const loadSafety  = () => block('SAFETY',
 // verifying the app. If they ever have to differ, say why in BOTH places. The
 // app's deadline IS deliberately different: it stops on wall-clock time as well,
 // because a phone has someone watching a spinner and this does not.
-async function call(url, token, attempt = 1) {
-  const res = await fetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`,
-    { signal: AbortSignal.timeout(45000) });
-  if ((res.status === 404 || res.status >= 500) && attempt < 4) {
-    console.log(`  retry  HTTP ${res.status} from Google, attempt ${attempt} — waiting ${attempt}s`);
-    await new Promise(r => setTimeout(r, attempt * 1000));
-    return call(url, token, attempt + 1);
+// One place for the rule, so the read side and the write side cannot drift.
+// A request that never comes back is the same flake as a 404 from that hop: on
+// 2026-09-15 it was a timeout, not a status, that failed this run. Re-sending is
+// safe on both sides — a read has no side effect, and a write to a date the
+// sheet already has rewrites that row rather than adding a second one.
+async function flakyFetch(url, init, attempt = 1) {
+  let res = null, timedOut = false;
+  try { res = await fetch(url, init); }
+  catch (e) {
+    if (e && e.name === 'TimeoutError' && attempt < 4) timedOut = true;
+    else throw e;
   }
+  if (timedOut || ((res.status === 404 || res.status >= 500) && attempt < 4)) {
+    console.log(`  retry  ${timedOut ? 'no answer in 45s' : `HTTP ${res.status}`} from Google, ` +
+      `attempt ${attempt} — waiting ${attempt}s`);
+    await new Promise(r => setTimeout(r, attempt * 1000));
+    return flakyFetch(url, init, attempt + 1);
+  }
+  return res;
+}
+
+async function call(url, token) {
+  const res = await flakyFetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`,
+    { signal: AbortSignal.timeout(45000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const text = await res.text();
   try { return JSON.parse(text); }
@@ -114,8 +130,8 @@ async function call(url, token, attempt = 1) {
 
 // The write side of the same flaky hop. Kept a "simple" request (text/plain)
 // for exactly the reason the app does it: Apps Script cannot answer a preflight.
-async function post(url, body, attempt = 1) {
-  const res = await fetch(url, {
+async function post(url, body) {
+  const res = await flakyFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(body),
@@ -123,11 +139,6 @@ async function post(url, body, attempt = 1) {
     // blank line forever, which reads exactly like a passing check that is slow.
     signal: AbortSignal.timeout(45000),
   });
-  if ((res.status === 404 || res.status >= 500) && attempt < 4) {
-    console.log(`  retry  HTTP ${res.status} from Google, attempt ${attempt} — waiting ${attempt}s`);
-    await new Promise(r => setTimeout(r, attempt * 1000));
-    return post(url, body, attempt + 1);
-  }
   // An HTML page here means the deployment has no doPost — it is still on the
   // version from before ca5. Say that instead of "not JSON".
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
