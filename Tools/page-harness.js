@@ -46,6 +46,10 @@ function makeElement(id) {
     value: '', checked: false, disabled: false,
     remove() {}, insertAdjacentHTML(_, html) { this.innerHTML += html; },
     getContext: () => ({}),
+    // There is no element tree here, but one relation is real enough to be worth
+    // stubbing: ca9 replaces a canvas's WRAPPER when Chart.js did not load, so a
+    // check has to be able to read back what went in its place.
+    get parentNode() { return this._parent || (this._parent = makeElement(id + ':parent')); },
   };
 }
 

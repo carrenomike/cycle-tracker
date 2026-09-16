@@ -15,17 +15,20 @@
 // that is Mike's browser pass — only that every code path in it runs.
 
 const { NEW_COLS } = require('./migrate-sheet.js');
-const { bootPage } = require('./page-harness.js');
+const { bootPage, makeStore } = require('./page-harness.js');
 
 // The stub browser lives in page-harness.js so the queue self-check can boot the
 // same page the same way — twice over, which is how a reload is tested.
-const api = bootPage({ expose:
+const EXPOSE =
   `{ renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
      setProvisional: v => { _provisional = v; },
      setScreen: (tab, role) => { _tab = tab; _role = role; },
      setOpenDate: v => { _openDate = v; }, entryFormHTML, entryDiff,
      setQueue: (entries, note) => { _queue = entries; _queueNote = note || null; },
-     queueBannerHTML }` });
+     queueBannerHTML, failLoad, switchTab, openDay, saveEntry, rememberRole,
+     sheetCallback: r => window._sheetCallback(r),
+     getQueue: () => _queue, getRole: () => _role, getTab: () => _tab }`;
+const api = bootPage({ expose: EXPOSE });
 const app = api._el('app');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -68,6 +71,8 @@ const renders = (rows, what) => {
   pass(`${what} — render ran clean`);
   return app.innerHTML;
 };
+const is_ = (got, want, what) =>
+  got === want ? pass(what) : fail(`${what} — got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
 const has = (html, needle, what) =>
   html.includes(needle) ? pass(what) : fail(`${what} — not in the rendered page`);
 
@@ -241,5 +246,118 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   api.setScreen('dashboard', null);
 }
 
-console.log(failed ? `\nrender self-check: ${failed} FAILED\n` : '\nrender self-check: PASS\n');
-process.exit(failed ? 1 : 0);
+// ── ca9: the cold start with no signal and no saved copy ───────────────────
+// The one state nothing above covers: not a stale dashboard, but no dashboard.
+// Every ca6 mechanism exists for it and, until ca9, none of them was reachable
+// from it — showError() had no tab bar, so the entry form had no door.
+(async () => {
+  console.log('\n--- CHART.JS DID NOT LOAD (ca9) ---');
+  {
+    // Offline the CDN script is simply absent. `new Chart(...)` would throw
+    // AFTER #app was written, and failLoad() would then replace the whole drawn
+    // dashboard with an error screen — the ca4a failure, exactly.
+    const noChart = bootPage({ env: { Chart: undefined }, expose: EXPOSE });
+    const el = noChart._el('app');
+    try {
+      noChart.renderPayload(NEW_COLS, withMarker);
+      pass('the dashboard renders with no charting library');
+    } catch (e) { fail(`Chart.js missing threw the whole render: ${e.message}`); }
+    has(el.innerHTML, 'Safe Sex Status', 'and the safety card — the part that matters — is on it');
+    const wrap = noChart._el('chartTimeline').parentNode.innerHTML;
+    /need an internet connection/.test(wrap)
+      ? pass('the empty chart says why it is empty')
+      : fail(`the missing chart said nothing: ${JSON.stringify(wrap)}`);
+  }
+
+  console.log('\n--- COLD START, NO SIGNAL, NO SAVED COPY (ca9) ---');
+  {
+    // Only `cycleRole` in the store: this is ca7 or ca6 having dropped the
+    // display cache to make room, or simply a phone that has never had one.
+    const store = makeStore();
+    store.setItem('cycleToken', 'writer-token');
+    const cold = bootPage({
+      store,
+      fetch: () => Promise.reject(new Error('offline')),
+      expose: EXPOSE,
+    });
+    // One successful live read, exactly as the phone would have had at home...
+    cold.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    // ...and then ca7 or ca6 drops the display cache to make room, which is the
+    // whole reason the role needs a key of its own.
+    store.removeItem('cycleCache');
+    const again = bootPage({ store, fetch: () => Promise.reject(new Error('offline')), expose: EXPOSE });
+    is_(again.getRole(), 'writer', 'a reload with no cache still knows this is the writer');
+
+    const app = again._el('app');
+    again.failLoad('Could not reach the server — check your internet connection');
+    has(app.innerHTML, 'Could not load data.', 'with nothing cached, the screen says so');
+    has(app.innerHTML, "switchTab('log')", 'and still offers the Log tab');
+
+    again.switchTab('log');
+    has(app.innerHTML, 'Log a day', 'the Log tab opens with no cycle data at all');
+    has(app.innerHTML, 'not logged', 'every day in the catch-up list is unlogged, which is true');
+    /&middot; Day \d/.test(app.innerHTML)
+      ? fail('a cycle day was printed with no cycle data to derive it from')
+      : pass('no day number is invented');
+
+    const today = iso(new Date());
+    again.openDay(today);
+    has(app.innerHTML, 'saveEntry', 'a day opens into the full entry form');
+    again._el('f0').value = '97.90';
+    await again.saveEntry(today);
+    const q = again.getQueue();
+    q.length === 1 && q[0].iso === today && q[0].values.Temp === '97.90'
+      ? pass('the entry is kept in the unsent queue, not lost')
+      : fail(`the offline save did not queue: ${JSON.stringify(q)}`);
+    has(app.innerHTML, 'banner queue', 'and the unsent banner is on the cold-start screen');
+
+    // Tirzah, same situation: no data, no signal, and no writer surface.
+    const rstore = makeStore();
+    rstore.setItem('cycleToken', 'reader-token');
+    const r1 = bootPage({ store: rstore, expose: EXPOSE });
+    r1.sheetCallback({ ok: true, role: 'reader', cols: NEW_COLS, rows: withMarker });
+    rstore.removeItem('cycleCache');
+    const reader = bootPage({ store: rstore, expose: EXPOSE });
+    reader.failLoad('offline');
+    /switchTab|Log a day/.test(reader._el('app').innerHTML)
+      ? fail('the reader was offered the Log tab on the offline screen')
+      : pass('the reader gets no tab bar and no entry form');
+  }
+
+  console.log('\n--- A SAVED COPY WITH NO ROLE IN IT (ca9) ---');
+  {
+    // A cache written before ca9, or one the server answered with no role at
+    // all. bootFromCache() must fill the role in, never overwrite the one
+    // recallRole() already found.
+    const store = makeStore();
+    store.setItem('cycleToken', 'writer-token');
+    const a = bootPage({ store, expose: EXPOSE });
+    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    const cached = JSON.parse(store.getItem('cycleCache'));
+    cached.role = null;
+    store.setItem('cycleCache', JSON.stringify(cached));
+    is_(bootPage({ store, expose: EXPOSE }).getRole(), 'writer',
+      'a role-less saved copy does not wipe the remembered role');
+  }
+
+  console.log('\n--- A DEAD LINK IS NOT HIDDEN BEHIND THE LOG TAB (ca9) ---');
+  {
+    // The remembered role outlives the token. If the server says the link is
+    // gone, showMessage() must not draw the entry form over the refusal.
+    const store = makeStore();
+    store.setItem('cycleToken', 'old-token');
+    const a = bootPage({ store, expose: EXPOSE });
+    a.rememberRole('writer');
+    const b = bootPage({ store, expose: EXPOSE });
+    b.switchTab('log');
+    b.sheetCallback({ ok: false, error: 'no-access' });
+    has(b._el('app').innerHTML, 'This link is not valid any more.', 'the refusal is what is on screen');
+    /Log a day/.test(b._el('app').innerHTML)
+      ? fail('the entry form was drawn over a rejected link')
+      : pass('the entry form is not drawn over a rejected link');
+    is_(b.getRole(), null, 'and the remembered writer role is forgotten');
+  }
+
+  console.log(failed ? `\nrender self-check: ${failed} FAILED\n` : '\nrender self-check: PASS\n');
+  process.exit(failed ? 1 : 0);
+})().catch(e => { console.error('\nThe check itself threw:', e); process.exit(1); });

@@ -166,6 +166,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
 
 /* ── Chart ────────────────────────────────────────── */
 .chart-wrap { position: relative; height: 270px; }
+.chart-missing { display: flex; align-items: center; justify-content: center; height: 270px;
+  color: #8a7a95; font-size: 0.9rem; text-align: center; padding: 0 20px;
+  background: #faf7fc; border: 1px dashed #d6c8de; border-radius: 8px; }
 
 .legend {
   display: flex;
@@ -361,6 +364,7 @@ tfoot td {
 @media (max-width: 620px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .chart-wrap { height: 210px; }
+  .chart-missing { height: 210px; }
   .hide-sm { display: none; }
 
   /* Even after hide-sm has done its work the log still shows eight columns on a
@@ -996,7 +1000,20 @@ const F_AT = col => ENTRY_FIELDS.findIndex(f => f.col === col);
 
 function switchTab(tab) {
   _tab = tab;
-  if (allCycles) render(allCycles);
+  redraw();
+}
+
+// Every "put the screen back" path goes through here. With no data at all — a
+// cold start with no signal and no saved copy — render() has nothing to draw,
+// so the screen falls back to the message it came from. showMessage() is what
+// keeps the Log tab reachable in that state; see the note on it.
+function redraw() {
+  if (allCycles) return render(allCycles);
+  if (_lastMessage) return showMessage(_lastMessage.msg, _lastMessage.detail, _lastMessage.canRetry);
+  // Nothing has drawn anything yet, which should be impossible by the time
+  // anything calls this. Say so rather than leaving a blank screen.
+  console.error('redraw() had neither data nor a message to fall back on.');
+  showError('No data has loaded yet.');
 }
 
 function tabBarHTML() {
@@ -1137,12 +1154,12 @@ function openDay(iso) {
   _savedNote = null;   // acknowledged by moving on
   _skippedRefreshes = 0;
   _openDate = _openDate === iso ? null : iso;
-  render(allCycles);
+  redraw();
 }
 
 function showMoreDays() {
   _catchupDays += 14;
-  render(allCycles);
+  redraw();
 }
 
 function setHint(msg) {
@@ -1264,7 +1281,7 @@ async function saveEntry(iso) {
       // Kept, not lost. The card closes because the values are safe in the
       // queue and shown on its summary line; the banner says the rest.
       _openDate = null;
-      render(allCycles);   // the `finally` below still clears _saving
+      redraw();            // the `finally` below still clears _saving
       return;
     } else {
       setSaveStatus('NOT saved, and this phone would not keep it to send later — ' + text +
@@ -1364,7 +1381,7 @@ function refreshQueueBanner() {
 
 function redrawAfterQueueChange() {
   if (_openDate) refreshQueueBanner();
-  else render(allCycles);
+  else redraw();
 }
 
 // The note outlives the entries it describes, so it needs its own way out —
@@ -1762,9 +1779,28 @@ function baseOptions(xTicks, yMinMax, tooltipExtra) {
   };
 }
 
+// Chart.js is the app's one external dependency, loaded from a CDN. Cold-start
+// offline it may simply be absent, and `new Chart(...)` would then throw AFTER
+// #app was written — which is the ca4a failure exactly: a drawn dashboard,
+// renderPayload throwing past it, and failLoad replacing the lot with an error
+// screen. Every caller of the two draw functions goes through this instead.
+function chartsUnavailable() {
+  if (typeof Chart !== 'undefined') return false;
+  for (const id of ['chartTimeline', 'chartOverlay']) {
+    const c = document.getElementById(id);
+    if (c && c.parentNode) {
+      c.parentNode.className = 'chart-missing';
+      c.parentNode.innerHTML = 'These charts need an internet connection to load.';
+    }
+  }
+  console.warn('Chart.js did not load — the dashboard was drawn without its charts.');
+  return true;
+}
+
 // ── Chart 1: Full timeline ─────────────────────────────────────────────────
 
 function drawTimelineChart(cycles) {
+  if (chartsUnavailable()) return;
   if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
 
   const allRows = cycles.flat();
@@ -1956,6 +1992,7 @@ function onLogCycleChange(val) {
 }
 
 function drawOverlayChart(cycles) {
+  if (chartsUnavailable()) return;
   if (overlayChart) { overlayChart.destroy(); overlayChart = null; }
 
   const colors  = ['#1e88e5', '#e53935', '#fb8c00', '#43a047', '#8e24aa'];
@@ -2155,6 +2192,13 @@ const TOKEN_KEY = 'cycleToken';
 const CACHE_KEY = 'cycleCache';
 // One self-reload per tab, so a genuinely dead server cannot loop the page.
 const REFRESH_KEY = 'cycleSelfRefreshed';
+// Which link this is. The display cache carries the role too, but ca7 and ca6
+// both drop that whole key to make room — and then a cold start with no signal
+// no longer knows whether it is Mike or Tirzah, so it cannot decide whether to
+// offer the Log tab. This key is a few bytes and survives that.
+const ROLE_KEY = 'cycleRole';
+
+let _lastMessage = null;   // the last showMessage() args, so redraw() can repeat it
 
 let _staleInfo      = null;   // set while the screen is drawn from the cache
 let _bannerDismissed = false;
@@ -2218,9 +2262,22 @@ const TOKEN = bootstrapToken();
 
 // The queue banner goes above every message screen too. With no cache and no
 // signal there is no render() at all, and unsent entries would be on no screen.
+//
+// ca9: so does the tab bar, and so does the Log tab itself. A cold start with no
+// signal and no saved copy lands here, and it is the one situation the unsent
+// queue exists for — a writer who cannot reach the entry form cannot use it.
+// entryScreenHTML() needs no cycle data: with none, every day is "not logged"
+// and carries no day number, which is exactly true. The Dashboard tab has
+// genuinely nothing to draw, so it stays the message.
 function showMessage(msg, detail, canRetry) {
+  _lastMessage = { msg: msg, detail: detail, canRetry: canRetry };
+  if (_tab === 'log' && _role === 'writer') {
+    document.getElementById('app').innerHTML =
+      queueBannerHTML() + tabBarHTML() + entryScreenHTML(allCycles || []);
+    return;
+  }
   const esc = escHTML;
-  document.getElementById('app').innerHTML = queueBannerHTML() + `
+  document.getElementById('app').innerHTML = queueBannerHTML() + tabBarHTML() + `
     <div class="spinner">
       ${esc(msg)}<br>
       ${detail ? `<small>${esc(detail)}</small><br>` : ''}
@@ -2301,6 +2358,23 @@ function adaptRows(rows) {
 
 let _scriptEl = null;
 let _loadTimer = null;
+
+// Stored with the proxy URL it came from, for the reason cacheIsUsable() checks
+// the same thing: a new deployment is a new pair of tokens, and the old link may
+// not mean what it did.
+function rememberRole(role) {
+  try {
+    if (role) localStorage.setItem(ROLE_KEY, PROXY_URL + '\n' + role);
+    else localStorage.removeItem(ROLE_KEY);
+  } catch (e) { console.error('Could not save which kind of link this is:', e); }
+}
+
+function recallRole() {
+  try {
+    const v = String(localStorage.getItem(ROLE_KEY) || '').split('\n');
+    return v.length === 2 && v[0] === PROXY_URL && v[1] ? v[1] : null;
+  } catch (e) { console.error('Could not read which kind of link this is:', e); return null; }
+}
 
 function readCache() {
   let c = null;
@@ -2403,7 +2477,13 @@ function loadData(attempt) {
       if (!resp || resp.ok !== true) {
         const err = resp && resp.error;
         // Access and setup problems get their own message, never a cached
-        // dashboard pretending to be live.
+        // dashboard pretending to be live — and never the Log tab either. The
+        // server has just said this link is not a working writer link, so a
+        // remembered role from an earlier session is wrong and must go, or
+        // showMessage() would draw the entry form over the refusal.
+        if (err === 'not-configured' || err === 'no-access') {
+          _role = null; _tab = 'dashboard'; rememberRole(null);
+        }
         if (err === 'not-configured') {
           return showMessage('This app is not finished being set up.',
             'The server has no access tokens configured yet.', false);
@@ -2420,6 +2500,7 @@ function loadData(attempt) {
       _staleInfo = null;
       _provisional = false;
       _role = resp.role || null;
+      rememberRole(_role);
       renderPayload(resp.cols, resp.rows);
       // Only cache what actually rendered, so a bad payload cannot overwrite a
       // good saved copy and leave the offline path broken too.
@@ -2465,7 +2546,9 @@ function bootFromCache() {
   if (!c) return;
   try {
     _provisional = true;
-    _role = c.role || null;
+    // Not an overwrite: recallRole() may already have answered this, and the
+    // cache is the one of the two that ca7 is allowed to throw away.
+    _role = c.role || _role;
     renderPayload(c.cols, c.rows);
   } catch (e) {
     // A saved copy this version cannot render is not worth a word to the user —
@@ -2476,9 +2559,25 @@ function bootFromCache() {
   }
 }
 
+// The offline shell. Without sw.js the app cannot be OPENED with no signal —
+// Chrome serves index.html from its own HTTP cache or shows its offline page,
+// and everything below is unreachable in exactly the case it was built for.
+// `window.isSecureContext` covers https and localhost and excludes file://,
+// where registration would throw. Failing to install is not fatal — the app
+// still works online — but it is the whole of this feature, so it is loud.
+if (window.isSecureContext && navigator.serviceWorker) {
+  navigator.serviceWorker.register('sw.js')
+    .catch(e => console.error('The offline shell could not be installed — ' +
+      'this app will not open without a signal:', e));
+}
+
 // Before either render: the catch-up cards and the banner both read the queue,
 // and an unsent entry must be on screen from the very first paint.
 loadQueue();
+// Before bootFromCache(), which only fills this in if it is still empty. With no
+// cache and no signal this is the only thing that knows whose link this is, and
+// therefore the only thing that can put the Log tab on the error screen.
+_role = recallRole();
 bootFromCache();
 loadData();
 // The one moment worth reacting to instantly. Everything else waits for the

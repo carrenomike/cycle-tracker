@@ -1242,3 +1242,144 @@ nothing from `/exec` in the worker's cache — a second invisible copy of sheet 
 behind the one the staleness banner reports on would undo ca7. It also has to not
 fight ca7's `selfRefresh()`, which exists to escape a cached page pointing at an
 archived `/exec` — exactly the failure a badly-scoped worker would make permanent.
+
+## ca9 — the offline shell (2026-09-15)
+
+### What the stub got right, and the one thing it got wrong
+
+The stub's three open questions were all answerable from the code, and two came
+back as it guessed. The third did not.
+
+**Chart.js is not opaque.** The stub warned that a worker-cached copy of a
+cross-origin script would be an opaque response and that this was "worth proving
+before relying on". jsDelivr sends `Access-Control-Allow-Origin: *`, so the
+response is a normal readable one and replays into a `<script src>` fine. It is
+also version-pinned and immutable, which is what makes it the one thing in this
+worker that is safe to serve cache-first. So it is precached — but it is no
+longer *depended* on, which matters more. `index.html` gained
+`chartsUnavailable()`: if `Chart` is undefined, each canvas's wrapper is replaced
+with "These charts need an internet connection to load." and the draw functions
+return.
+
+That guard is ca4a's failure, pre-empted. Without it a cold start with no signal
+would have thrown inside `new Chart(...)`, `renderPayload` would have thrown past
+the dashboard it had already written, and `failLoad` would have replaced the lot
+with an error screen — a blank dashboard from a throw, for the second time in
+this plan. The guard went on the two **draw functions**, not the two call sites in
+`render()`, because the overlay checkbox calls `drawOverlayChart(allCycles)`
+directly from an `onchange` — a call site the render-level guard would have
+missed.
+
+### The thing the stub did not know it needed: `cycleRole`
+
+The stub asked whether the writer should be able to reach the entry form from the
+offline error screen "or is that ca6's problem". It is this slice's problem: a
+cold start with no signal is *precisely* when the unsent queue matters, and ca9
+cannot meet its own exit criteria if the writer cannot reach the form. So
+`showMessage()` now carries the tab bar, and answers the Log tab with
+`entryScreenHTML(allCycles || [])` — which needs no cycle data at all: every day
+comes out "not logged" with no day number, which is exactly true.
+
+That needs `_role`, and with no `cycleCache` `_role` was `null`. The obvious fix
+— read the role out of the cache — is the one that does not work, because **ca7
+and ca6 both delete that whole key** when storage is full. The state where the
+role is most needed is a state where the cache may well be gone. Hence a separate
+`cycleRole` key holding `PROXY_URL` and the role, a few bytes, written on every
+successful read, read at boot *before* `bootFromCache()`. `bootFromCache()`
+changed from `_role = c.role || null` to `_role = c.role || _role`, so a cache
+saved before ca9 (no role in it) no longer wipes the role that was just recalled.
+
+### The sibling bug the stub did not name
+
+A remembered role outlives the token that earned it. Revoke Tirzah's link, or
+paste a dead one, and the phone would have drawn the **writer's entry form** over
+a refusal saying the link is dead — a writer-only surface on the viewer's screen,
+which the plan's locked decisions forbid outright. So the `not-configured` /
+`no-access` branch now clears `_role`, forces `_tab` back to `dashboard`, and
+calls `rememberRole(null)` before showing its message. That is P7 in the mutation
+list below and it is the single most important check in the slice.
+
+### `sw.js`
+
+Two rules, written at the top of the file as RULE 1 and RULE 2, because the next
+person to touch this file is the one who could undo the whole plan with a
+plausible-looking "make it faster" edit:
+
+1. **The page is network-first.** Cache only as the fallback for a request that
+   actually failed. Cache-first for `index.html` is how an app pins itself to one
+   version forever; `deploy.bat` would report success and the phone would keep
+   running last week's safety engine, with nothing on screen to say so.
+2. **Same-origin GETs and one pinned CDN URL, nothing else.** `script.google.com`
+   is never named in `sw.js`. Reads (a JSONP `<script src>` GET) and writes (a
+   POST) both fall straight through, so `cycleCache` stays the only copy of sheet
+   data on the phone and the staleness banner keeps reporting on all of it. It
+   also means there is no second copy of `PROXY_URL` to drift.
+
+The query-string handling is the subtle part. ca7's `selfRefresh()` reloads to
+`?v=<now>`, which offline is the *only* navigation there is — an exact-match
+cache could never answer it, so the fallback uses `ignoreSearch: true`. And a
+refreshed page is stored under origin plus pathname with the query **stripped**,
+because keying it as-sent would add one dead cache entry per rescue while leaving
+the plain URL stale forever.
+
+Registration is guarded on `window.isSecureContext` (https and localhost, but not
+`file://`, where `register()` throws) and its failure is a loud `console.error`
+naming the consequence — per the global rule about background failures, and
+because a silently un-installed worker is a slice that shipped nothing.
+
+### `redraw()`
+
+`switchTab`, `openDay`, `showMoreDays`, the offline branch of `saveEntry` and
+`redrawAfterQueueChange` all called `render(allCycles)` unconditionally. With no
+data at all that draws nothing, so each now goes through one `redraw()` that
+falls back to repeating the last `showMessage()` — which is what keeps the Log
+tab usable on a cold start. Five call sites, one helper, rather than five copies
+of the fallback.
+
+### Verification, and three false greens
+
+Eight self-checks PASS. Eleven mutations, each confirmed red then reverted: M1–M8
+against `sw.js` and the registration (cache-first page, `ignoreSearch` dropped,
+same-origin bail removed so the proxy gets cached, query-keyed refresh, `activate`
+retiring nothing, the secure-context guard removed, a swallowed registration
+failure, and `sw.js`'s Chart.js URL drifting from `index.html`'s), P1–P7 against
+the page.
+
+**Three of those went green first**, which is the real content of this entry:
+
+- **P4** — deleting `rememberRole(_role)` from the JSONP callback changed nothing,
+  because the check called `rememberRole('writer')` *directly*. It was testing the
+  function, not the wiring. Fixed by driving a real
+  `sheetCallback({ok:true, role:'writer', ...})` and then
+  `store.removeItem('cycleCache')` — which is exactly the sequence ca7 and ca6
+  produce in production when storage fills up.
+- **P6** — `_role = c.role || _role` reverted to `|| null` stayed green, because
+  no check ever booted *with* a cache present. Fixed by adding a section that
+  writes a cache back with `role: null`.
+- **P8** — `if (allCycles && allCycles.length)` relaxed to `if (allCycles)` stayed
+  green, and investigation showed why: `renderPayload` throws when
+  `cycles.length === 0`, so `allCycles` can only ever be `null` or non-empty. The
+  `.length` half of the guard was unreachable. It was deleted rather than tested —
+  a check for an impossible state is worse than no check, because it implies the
+  state is possible.
+
+P4 and P6 are the same mistake in two costumes: a check that exercises a function
+instead of the path that calls it. That is now four false greens in this plan
+(the previous one, ca6a's, was node exiting 0 on an unresolved await — which is
+also why `offline-selfcheck.js` has a `settle()` helper; the `put()` inside the
+fetch handler is deliberately not awaited).
+
+### Files
+
+New: `sw.js`, `Tools/offline-selfcheck.js` (17 checks under a stub worker global
+with a fake Cache API that honours `ignoreSearch`). Modified: `index.html`,
+`Tools/render-selfcheck.js` (four new sections), `Tools/page-harness.js` (stub
+elements gained `parentNode`, so a check can read back what replaced a canvas).
+
+### Outstanding
+
+The cold-start test cannot be run headlessly — it is Mike's, on the phone, in
+aeroplane mode with the tab closed. Including, deliberately, the one check that
+proves this slice did no harm: run `deploy.bat`, then open with a signal, and
+confirm the new version is there on the **next** open. Tirzah's ca7 aeroplane-mode
+check re-runs afterwards, and must still show no tab bar.

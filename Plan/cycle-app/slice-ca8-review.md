@@ -79,3 +79,19 @@ Every earlier slice, landed and committed.
   `not sent yet` span (the harness has no element tree, so `querySelectorAll` answers `[]`) and everything
   downstream of `escHTML` inside an attribute. Both are on Mike's live list; if they are still unconfirmed when
   ca8 runs, they belong on its end-to-end pass.
+
+## Added by ca9 (2026-09-15)
+
+- **ca9 has landed**, so the deploy-path risk ca6 flagged above is now a concrete thing to read: `sw.js`. The check
+  that matters is not "is there a worker" but **the order of network and cache for `index.html`**. Cache-first there
+  and `deploy.bat` reports success while the phone keeps running an old safety engine, with nothing on screen to
+  say so. `Tools/offline-selfcheck.js` pins the order; confirm no later change loosened it.
+- **`showMessage()` now draws a writer-only surface.** The error screen answers the Log tab with the full entry
+  form. Per ca6a's lesson about guards, ask which states it lets *through*: it is gated on `_role === 'writer'`,
+  and `_role` can now come from `localStorage` rather than from a live read.
+- **New key `cycleRole` outlives the token that earned it.** `not-configured` / `no-access` clear it, and that is
+  the only thing standing between a revoked token and Tirzah's phone drawing an entry form over a refusal. Any new
+  refusal code added later must clear it too — this is exactly the shape of cross-slice defect ca8 is for.
+- **`redraw()` replaced every `render(allCycles)` call site.** One shared helper on five paths, added late. Confirm
+  none of them wanted the old unconditional behaviour, and that no path added after ca9 calls `render()` directly.
+- ca9a reviews `55db0c4..HEAD` first; take that range as read unless ca9a records an open deviation.
