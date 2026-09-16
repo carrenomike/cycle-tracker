@@ -1182,3 +1182,39 @@ written for and silent about the other one (`_flushing` blocks flush-on-save but
 not save-on-flush; `!== 'writer'` excludes an unknown role as well as a reader).
 Both read correctly in isolation. Ask of every guard *which states it lets
 through*, not whether the state it names is handled.
+
+### ca6a postscript — the live run, and a stale deployment (2026-09-15)
+
+Mike's `verify-proxy` run came back with one failure out of forty-odd: a write
+with the **reader** token was refused as `no-access` where `Code.gs` says
+`read-only`. Every other write check passed, including ca5a's formula-note fix,
+so the deployed script demonstrably had the current write path — the repo copy
+and the live copy differed by exactly one line.
+
+They differed because Apps Script serves a frozen **version**, not the editor's
+contents. Mike redeploying the same code as a new version fixed it with no code
+change at all. Recorded in `Apps Script/SETUP.md` §5a and the plan's ground
+rules, with the part that matters: the textbook symptom of a stale deployment
+(reads fine, writes 404) only appears when the live version predates `doPost`.
+Between two versions that both write, the difference can be one error message,
+which no amount of clicking around the app would surface. `verify-proxy` naming
+the *expected* error rather than just asserting "refused" is the only reason
+this was visible — and that precision was itself a ca3b lesson.
+
+Second outcome: Mike offered to hand over the tokens so the check could be run
+without him. Declined, and `verify.bat` replaces the need. It reads the /exec
+URL, both tokens and the sheet ID from `%USERPROFILE%\.cycle-proxy.txt` and
+passes them to `verify-proxy` without echoing them. Outside the repo on
+purpose — `deploy.bat` runs `git add -A` into a public site, and a `.gitignore`
+entry is one careless edit away from not existing. Nothing about the tokens
+reaches the repo, a command line, or a chat transcript, and the check can now be
+run by either of us.
+
+Also worth writing down from the same session: **the app cannot cold-start
+offline.** There is no service worker, so in aeroplane mode Chrome has to serve
+`index.html` from its own cache, and when it cannot there is no page at all —
+which is what Mike hit trying to run the queue tests. Even when the page does
+load, a missing display cache lands on the error screen, which has no Log tab to
+reach the form from. So every offline test has to start online and turn the radio
+off with the tab already open. ca7's outstanding aeroplane-mode check for Tirzah
+has the same hole in it.

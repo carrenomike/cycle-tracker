@@ -55,6 +55,14 @@ The URL is not a secret — it is fine in the public repo.
 node Tools/verify-proxy.js <execUrl> <readerToken> <writerToken> <newSheetId>
 ```
 
+Or, once `%USERPROFILE%\.cycle-proxy.txt` exists (the /exec URL, the reader
+token, the writer token and the sheet ID, one per line, **outside** this repo
+because `deploy.bat` pushes everything inside it to a public site):
+
+```
+verify.bat
+```
+
 This checks the rejection paths, both roles, that the sheet itself is private
 to a logged-out fetch, that the ca2 paste landed intact (165 rows,
 2026-03-25 to 2026-09-11), and that the dashboard's numbers still come out the
@@ -76,8 +84,17 @@ token it is handed — the reader token is rejected there, not in the app. The
 Log tab being hidden from a reader is cosmetic; it is not the lock.
 
 After a `Code.gs` paste, re-do the **Manage deployments → edit → New version**
-step and re-enter the three secrets, then re-run step 5. A deployment still on
-the old version answers reads perfectly and 404s or ignores every write.
+step and re-enter the three secrets, then re-run step 5. Saving in the editor
+changes nothing: the `/exec` URL serves a frozen snapshot, and only *New
+version* takes a fresh one.
+
+**A stale deployment does not announce itself.** The obvious symptom — reads
+fine, writes 404 — only happens when the live version predates `doPost`
+entirely. Between two versions that both write, the difference can be a single
+line: in ca6a (2026-09-15) everything worked and one error *message* was the
+old wording, which is what `verify-proxy` caught and nothing else would have.
+So when a check disagrees with the code in front of you, suspect the deployed
+version **before** the code.
 
 ## 6. Send the links
 

@@ -67,6 +67,13 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 - Before staging a commit, review `git status` for anything unexpected — the working tree should hold only this
   slice's work.
 - `deploy.bat` is the deploy path and the repo is public. Nothing secret may ever be committed.
+- **`Code.gs` in the repo is not the `Code.gs` that runs.** Apps Script serves a frozen *version* of the script,
+  not what the editor holds, so the live write path can lag the repo by one line with no visible symptom. When a
+  check disagrees with the code you are reading, suspect the deployment first: **Deploy → Manage deployments →
+  edit → New version**. Cost ca6a half an hour; `Apps Script/SETUP.md` §5a has the detail.
+- **Secrets never enter this repo, a command line, or the chat.** `verify.bat` reads the /exec URL, both tokens and
+  the sheet ID from `%USERPROFILE%\.cycle-proxy.txt` — outside the repo, because `deploy.bat` runs `git add -A`
+  into a public site. Run the live check as `verify.bat`, never by typing the tokens out.
 
 ## Slice index
 
