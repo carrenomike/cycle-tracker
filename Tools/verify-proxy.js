@@ -165,6 +165,10 @@ async function post(url, body, confirming) {
   if (reply && reply.ok === false && REFUSALS.includes(reply.error) && !confirming) {
     console.log(`  retry  "${reply.error}" from Google — sending once more to check ` +
       'it is real: the answer link can be fetched twice, and then a landed write reads as refused');
+    // After a pause, not instantly: on 2026-09-15 this tool produced a phantom
+    // confirmed by a second phantom, and then four requests with no answer at
+    // all. The hop goes bad in patches. index.html's postEntry() pauses too.
+    await new Promise(r => setTimeout(r, 1000));
     return post(url, body, true);
   }
   return reply;

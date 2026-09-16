@@ -1352,6 +1352,12 @@ async function postEntry(iso, values, budgetMs, onRetry) {
           // the next person to read the console should see it happening.
           console.warn(`Write for ${iso} came back "${reply.error}" — sending once more to ` +
             'check that is real: a refusal can be the answer link being fetched twice.');
+          // Not immediately. On 2026-09-15 a verify.bat run produced a phantom
+          // and then a phantom confirming it, followed by four requests that got
+          // no answer at all: the hop goes bad in patches, not per request, and a
+          // confirming send fired instantly lands inside the same patch. The same
+          // pause the retry loop uses, for the same reason.
+          await new Promise(r => setTimeout(r, RETRY_PAUSE_MS));
           continue;
         }
         // Two script runs said no, so the link really is what they say it is.

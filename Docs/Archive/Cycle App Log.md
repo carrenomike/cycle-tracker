@@ -1730,3 +1730,70 @@ a confirmation for a row that is sitting in the sheet.
 Not fixed here. It is a change to the refusal contract that ca6, ca9a and ca10 all lean on, so it is
 `slice-ca11-phantom-refusal.md`: confirm a refusal with one more send before believing it, and only a second
 refusal reaches Mike, the queue or `forgetRole()`.
+
+## ca11 — confirming a refusal before believing it (2026-09-15)
+
+The postscript above is the finding; this is the fix. Nothing new was learned about Google's hop — the probes were
+already done — so this entry is about what the app now does with it.
+
+**The rule.** A refusal (`read-only` / `no-access` / `not-configured`) is no longer final on sight. `postEntry()`
+sends the same patch once more and only the second refusal counts. One extra send, never a budget: ca6 is explicit
+that a refusal behind a retry loop is a banner nothing can ever clear, and the confirming send is guarded by a flag
+(`refusedOnce`) rather than by a counter, so it cannot become two. A `console.warn` names the phantom when it
+happens, because a survived phantom is still Google misbehaving and this project keeps paying for quiet failures.
+
+**Why one send settles it.** The phantom comes from the answer link being fetched a second time, not from the
+script. A second POST is a fresh script run with a fresh answer link, so it either lands (`ok:true`) or refuses for
+a real reason. Two script runs agreeing is the evidence the old code assumed it had from one.
+
+**What happens when the confirming send gets no answer.** It falls into ca10's retry path and, if that gives up, is
+thrown as an ordinary write failure with `unknown` set — so the entry is *kept* and marked "may already be on the
+sheet", instead of being dropped the way a refusal is. That is the honest reading: a refusal was seen, but nothing
+confirmed it, and the row may well be in the sheet.
+
+**`forgetRole()` (ca9a) now fires only on a confirmed refusal**, still exactly once, still outside the retry loop.
+Before ca11 one hiccup could demote Mike to "no access" on a cold, offline-capable app — the worst version of this
+bug, because the entry form disappears with the role.
+
+**The read path was deliberately left alone**, with a comment saying why: the phantom needs a second run of
+`doGet`, and that run has no `callback` parameter, so it answers bare JSON — which the JSONP `<script>` tag cannot
+execute at all. A phantom on a read therefore shows up as a timeout, which is already handled; it cannot arrive
+dressed as a refusal. If that ever changes, the comment points at `postEntry()`.
+
+**`bad-request` is not treated like `no-access`** and the code says so: it comes from the script's own run on the
+first hop and means what it says. Only the three refusal shapes can be forged by a re-fetch.
+
+**`Tools/verify-proxy.js`** got the same one-shot confirm in `post()`, so a phantom prints a `retry` line instead
+of failing the run — which is what "verify.bat passes end to end" now means. The deliberate refusal checks (reader
+token, junk token) each cost one extra send and still pass; re-sending a refused write writes nothing. Not built:
+re-reading the sheet to prove a refusal was genuine. The confirming send already stops a phantom failing a run, and
+the extra machinery only pays off if a refusal ever survives two sends and is still doubted.
+
+**Checks.** 17 added to `Tools/queue-selfcheck.js`: a phantom then a success (day saved, role kept, nothing
+reported, the confirming send carries the same patch), a genuine refusal (two sends and no more, role forgotten
+exactly once, never queued, still says NOT saved), `read-only` costing two sends and never three, and an
+unconfirmed refusal keeping the entry with `unknown` set. A small store wrapper counts how many times the
+remembered role was actually dropped, so "forgotten once" is measured rather than assumed — ca9a broke twice over
+that. Three mutations red: believing a refusal on sight (the pre-ca11 code, 9 checks red), firing `forgetRole()`
+on the first refusal (5 red), and allowing two confirming sends instead of one (2 red). A fourth mutation —
+confirming for ever — hangs rather than fails, which is the one shape these checks cannot report; the flag is what
+makes it unreachable.
+
+All 8 self-checks PASS. Deployed by `deploy.bat` as commit `47547be` ("Update dashboard") before this wrap-up ran,
+so the code and this entry are one slice in two commits. **Live test is Mike's**: `verify.bat` end to end, and the
+honest exit is a phantom being survived in the console during normal use.
+
+**The live runs changed the fix.** `verify.bat` was run twice on 2026-09-15 after the code was written. Run 1
+caught three phantoms and survived all three — and then produced a refusal on the **good writer token** whose
+confirming send was refused too, followed by four requests that got no answer at all before the run aborted. Run 2,
+minutes later, passed every check end to end, with the sheet back at 169 rows and no leftover sentinel: run 1 had
+written nothing and left nothing behind. So the hop goes bad in **patches**, not per request, and a confirming send
+fired instantly lands inside the same patch. Both the app and `verify-proxy` now pause before it — the same
+`RETRY_PAUSE_MS` the retry loop uses. One send, after a pause; still never two.
+
+**A false green fixed on the way.** The pause is an `await`, and `page-harness.js` answered `setTimeout` with a
+no-op that dropped every timer — so the page waited on something that would never resolve and node exited 0 in the
+middle of the run. `queue-selfcheck` had been carrying a local fix for this since ca10 (`RETRY_ENV`); it now lives
+in the harness, where every check gets it: timers under 5s really run, the page's 20s load timer and 10-minute
+refresh stay no-ops. That is the fourth false green of this shape in this plan, and the first one fixed at the
+root.

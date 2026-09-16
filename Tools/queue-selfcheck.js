@@ -414,15 +414,13 @@ function typeTemp(api, temp) {
   // the app did not, and on 2026-09-15 a row that WAS written was reported to
   // Mike as a write that failed.
   //
-  // The backoff is a real await, so these boots get a real setTimeout — but only
-  // for the sub-second retry pause. The page's own 20s load timer stays the no-op
-  // it is in every other check here, or every boot would hold the process open.
-  const realTimeout = setTimeout;
-  const RETRY_ENV = { setTimeout: (fn, ms) => (ms >= 5000 ? 0 : realTimeout(fn, ms)) };
+  // The backoff is a real await; page-harness runs any timer under 5s for exactly
+  // that reason, and no-ops the page's 20s load timer. These boots only need the
+  // pause made short enough not to add seconds to the run.
   const RETRY_EXPOSE = EXPOSE.replace('{',
     '{ postEntry, setRetryPause: ms => { RETRY_PAUSE_MS = ms; },');
   const bootRetry = o => {
-    const api = bootPage(Object.assign({ expose: RETRY_EXPOSE, env: RETRY_ENV }, o));
+    const api = bootPage(Object.assign({ expose: RETRY_EXPOSE }, o));
     api.setRetryPause(5);
     return api;
   };

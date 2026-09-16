@@ -95,3 +95,29 @@ Every earlier slice, landed and committed.
 - **`redraw()` replaced every `render(allCycles)` call site.** One shared helper on five paths, added late. Confirm
   none of them wanted the old unconditional behaviour, and that no path added after ca9 calls `render()` directly.
 - ca9a reviews `55db0c4..HEAD` first; take that range as read unless ca9a records an open deviation.
+
+## Added by ca10 + ca11 (2026-09-15)
+
+- **The refusal contract changed, and ca9's note above is now out of date.** `no-access` / `read-only` /
+  `not-configured` no longer clear the remembered role on sight: `postEntry()` sends the write once more, after a
+  pause, and only a **second** refusal reaches Mike, the queue or `forgetRole()`. Review it as that: the question
+  is not "does a refusal clear the role" but "can it clear it on one reply, or twice on two". Any new refusal code
+  added later needs the same treatment.
+- **Three write replies now mean three different things** and the review should hold every message against them:
+  `ok:true` (accepted, not proof the sheet holds it), a timeout or 404/5xx (`unknown` — the write MAY have landed,
+  and nothing on screen may say it did not), and a confirmed refusal (final). A message that asserts more than the
+  reply observed is a finding, which is ca3b's lesson for the third time.
+- **Two things bound the retry and are easy to loosen by accident:** ca10's wall-clock budget (100s on a save,
+  180s on a flush — an attempt that cannot be paid for must not start) and ca11's single confirming send, which is
+  guarded by a flag rather than a counter on purpose. A counter there would be a retry loop behind a refusal,
+  which ca6 says is a banner nothing can clear.
+- **`Tools/verify-proxy.js` and `index.html` deliberately share one retry rule** (4 attempts, `attempt * 1000`
+  backoff, a paused one-shot confirm on a refusal), with a comment in each file pointing at the other. Drift
+  between them is a finding: a flake the verifier tolerates and the app calls a failure means the verifier is not
+  verifying the app.
+- **The read path was left alone on purpose** and says why in a comment — a phantom there cannot arrive dressed as
+  a refusal, because the second `doGet` has no `callback` and answers bare JSON a `<script>` tag cannot run.
+  Confirm nothing has since given the read path a non-JSONP route that would change that.
+- **`page-harness.js` now runs timers under 5 seconds for real** (ca11) instead of dropping every timer. That
+  closed the false-green shape this plan has hit four times — a check awaiting a pause that never resolves, and
+  node exiting 0 mid-run. The open deviation about the harness answering more than a real DOM still stands.

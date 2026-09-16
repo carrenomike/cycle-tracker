@@ -30,6 +30,9 @@ function makeStore(map) {
   };
 }
 
+// Captured before any check can shadow the global.
+const realSetTimeout = setTimeout;
+
 class ChartStub {
   constructor() { this.data = { datasets: [] }; }
   destroy() {} update() {}
@@ -87,8 +90,12 @@ function bootPage(opts) {
     fetch: opts.fetch || (() => { throw new Error('no fetch stub was given to this check'); }),
     Chart: ChartStub,
     // The page schedules a 10-minute refresh and a 20s load timeout; neither
-    // should hold the process open or fire mid-check.
-    setTimeout: () => 0,
+    // should hold the process open or fire mid-check. Anything shorter IS run,
+    // because the page awaits its own short pauses (ca10's retry backoff, ca11's
+    // confirming send) — dropping those hangs the check on an await nobody will
+    // ever resolve, and node then exits 0 in the middle of the run. That false
+    // green has cost this plan four sessions.
+    setTimeout: (fn, ms) => (ms >= 5000 ? 0 : realSetTimeout(fn, ms)),
     setInterval: () => 0,
     clearTimeout: () => {},
   }, opts.env || {});
