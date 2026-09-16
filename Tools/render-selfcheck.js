@@ -202,7 +202,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   console.log('\n--- THE UNSENT QUEUE BANNER (ca6) ---');
   const unsentIso = iso(daysAgo(1));
   api.setQueue([{ iso: unsentIso, values: { Temp: '97.80', Note: '' }, at: Date.now(), tries: 1,
-                  lastError: 'the server did not reply within 30 seconds.' }], null);
+                  lastError: 'the server did not reply within 45 seconds.' }], null);
 
   api.setScreen('log', 'writer');
   const qlog = renders(withMarker, 'the log tab with an unsent entry');

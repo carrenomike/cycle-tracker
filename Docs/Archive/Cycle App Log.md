@@ -1567,3 +1567,125 @@ than by accident: the reader token overwrites `cycleToken`, so the writer link h
 to come from wherever it is saved (the app scrubs `#t=` from the address bar once
 it stores it); and `cycleQueue` deliberately survives the swap, so any unsent
 writer entries sit there until the writer link is back.
+
+## ca10 — surviving the flaky second hop (2026-09-15)
+
+A write that **landed** was reported to Mike as a write that failed: the Sep 15
+entry was in the sheet with `Temp: "99"` while the queue banner said it "could
+not be sent: the server did not reply within 30 seconds". The POST reached Apps
+Script, `doPost` did its job, and only the reply was lost on the second hop.
+
+Two halves, both shipped.
+
+### 1. Retry the hop
+
+`Tools/verify-proxy.js` has retried this since ca5 (its own comment names the
+cause: `/exec` redirects to a second Google host that 404s or 5xxs under
+back-to-back requests). The app made exactly one attempt. The two now share one
+rule — 4 attempts, `attempt * 1000` ms backoff, said out loud — and each file's
+comment points at the other, because a flake the verifier tolerates and the app
+calls a failure means the verifier is not verifying the app.
+
+`postEntry()` was split in two. `postOnce()` is the old single fetch plus one
+addition: a 404/5xx is flagged with `hopStatus` and thrown, rather than falling
+into the "reply this app could not read" branch that used to swallow it.
+`postEntry()` is the loop around it, and it is still the single write path —
+`saveEntry` and `flushQueue` both come through it, so the retry exists in one
+place.
+
+**ca9a's `forgetRole()` stayed outside the retry**, which the slice flagged as
+the thing not to break. A *reply* — refusal or not — returns immediately: the
+server answered, and asking again gets the same answer. So a refusal is still
+final on the first reply, `forgetRole()` still fires exactly once from the write
+path, and no short-circuit can skip it.
+
+**What is retried** (`writeFailureKind`, answering the slice's open question 1):
+
+| symptom | retried | may have landed |
+|---|---|---|
+| `TimeoutError` | yes | **yes** — ca10's own failure |
+| 404 / 5xx (`hopStatus`) | yes | yes — the hop can fail after `doPost` ran |
+| `TypeError`, `navigator.onLine === false` | no | no |
+| `TypeError`, otherwise | yes | yes |
+| a reply that was read and made no sense | no | no |
+
+The browser's symptom could not be predicted from node, so all three are handled.
+`navigator.onLine` is trusted only in the direction it is reliable: `false` means
+there was no network to reach the sheet with, so nothing landed and a retry is
+pointless; `true` means nothing, so a `TypeError` there is treated as a redirect
+that failed CORS — retried, and claimed nothing about.
+
+**The stop is a wall-clock deadline, not only an attempt count.** Four attempts
+costs six seconds against a fast 404 and over two minutes against a timeout, and
+the slice was right to flag that. `WRITE_BUDGET_SAVE` is 100s and
+`WRITE_BUDGET_FLUSH` is 180s, checked *before* starting an attempt the budget
+cannot pay for. In practice: a 404 storm uses all four attempts either way; a
+timeout gets two attempts on Save and three on a background flush. The per-attempt
+timeout went 30s → 45s, which is what `verify-proxy` has always allowed against
+this endpoint (open question 3).
+
+`saveEntry` passes an `onRetry` callback that puts "Still saving — the server did
+not answer, trying again (attempt N)…" on the spinner; `flushQueue` passes none
+and the console carries it. Mike pressing Save is watching; a boot-time flush is
+not. Every attempt, and every give-up, is a `console.warn`.
+
+### 2. Stop the banner asserting what it never observed
+
+"Could not be sent" is a claim about the sheet, and a timeout is not evidence for
+it — ca3b's lesson, which ca7 already applied to the 20s load timeout. An entry
+now carries `unknown`, set from the last attempt only, and it changes what is
+said rather than what is done:
+
+- `writeAttemptText()` adds "The app never heard back, so whether it reached the
+  sheet is not known" — and nothing is appended to a refusal, which is quoted
+  as-is.
+- `unsentNoteText()` is the per-day line both write paths share: "could not be
+  sent" when that was observed, otherwise "was sent, but nothing came back to
+  confirm it… sending it again is safe — it rewrites that day rather than adding
+  a second row."
+- The banner's headline switches from "has not reached the sheet yet" to "has not
+  been confirmed by the sheet", plus a line saying one of these may already be on
+  the sheet. The weaker claim wins as soon as one entry is in that state.
+- `e.tries` is on screen at last (open question 4): "Sent again N times so far
+  without a confirmation", from two sends up. It counts *sends*, not requests —
+  each send already retries the hop internally — which is the difference between
+  a flake and an outage.
+
+Nothing else changed: an entry still leaves the queue only on a confirmed
+`ok: true`, refusals are still never queued, and the values sent are still the
+diff the form was opened against.
+
+**One real bug found while checking, not shipped:** the deadline was
+`budgetMs || WRITE_BUDGET_SAVE`, so a caller asking for no room at all silently
+got the default two minutes. It is `== null` now, and the check that caught it is
+in the file.
+
+### Checks
+
+`Tools/queue-selfcheck.js` gained 26: the classifier and the three wordings as
+pure functions, then the paths themselves — a 404 then a success (two requests,
+same patch, entry leaves once, and *nothing* reported as a problem), a retry
+during a save writing its notice to the spinner, a refusal answered once, an
+outage exhausting the budget and leaving a visible banner that does not claim the
+sheet is missing the row, and the budget stopping a timeout that the attempt
+count alone would not have.
+
+The scripted fetch stub answers a sequence of real HTTP outcomes (status numbers,
+`TimeoutError`, JSON replies), so "flaked once then worked" is a second request
+rather than a mocked verdict. The retry backoff is a real `await`, so those boots
+get a real `setTimeout` for sub-second waits only — the page's own 20s load timer
+stays the no-op it is everywhere else in that file, or every boot would hold the
+process open.
+
+**All 13 mutations were red first**, including one aimed at this plan's recurring
+false green: `queue-selfcheck.js` now fails if the process exits 0 without
+reaching its last line. Three of the false greens in this plan were node exiting
+cleanly on an await nobody resolved; the run finishing is now itself a check.
+
+All 8 self-checks PASS.
+
+### Outstanding
+
+Mike's live test. The flake is intermittent, so the honest exit is the console
+showing `Write attempt 1 … trying again` at least once in normal use — not a
+one-off green run. `verify.bat` still needs a pass on the real endpoint.

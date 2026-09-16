@@ -890,6 +890,53 @@ function writeErrorText(err) {
   if (err === 'not-configured') return 'The server is not finished being set up.';
   return String(err || 'the server sent a reply this app could not read');
 }
+
+// Apps Script redirects /exec to a second Google host, and that second hop
+// intermittently 404s or 5xxs under back-to-back requests. Tools/verify-proxy.js
+// has retried that since ca5; the app did not, so on 2026-09-15 a row that was
+// written to the sheet was reported to Mike as a write that failed. These three
+// numbers are the app's half of one rule shared with verify-proxy's call()/post()
+// — if they ever drift apart, say why in a comment in BOTH files, because a flake
+// the verifier tolerates and the app calls a failure means the verifier is not
+// verifying the app.
+const RETRY_ATTEMPTS     = 4;       // as verify-proxy
+const ATTEMPT_TIMEOUT_MS = 45000;   // as verify-proxy; it passes against this endpoint at 45s
+let   RETRY_PAUSE_MS     = 1000;    // backoff is attempt * this. A `let` only so
+                                    // queue-selfcheck can run the retry path
+                                    // without sitting out six real seconds.
+
+// Two different questions about one failure: is trying again worth anything, and
+// might the write have landed anyway? They come apart on a timeout — the request
+// reached Apps Script and only the reply was lost, which is exactly how ca10's
+// Sep 15 entry ended up in the sheet and on the "could not be sent" banner.
+function writeFailureKind(err, online) {
+  const name = err && err.name;
+  if (name === 'TimeoutError') return { retryable: true, unknown: true };
+  // A 404/5xx from the second hop. The write may still have run before Google
+  // lost the reply, so this is not evidence either way.
+  if (err && err.hopStatus)    return { retryable: true, unknown: true };
+  // fetch() rejects with a TypeError for no connection AND for a redirect that
+  // fails CORS, and the two are indistinguishable from here. `navigator.onLine`
+  // is only trusted in the direction it is reliable: false means there was no
+  // network to reach the sheet with, so nothing landed and a retry is pointless.
+  if (name === 'TypeError')    return online === false
+    ? { retryable: false, unknown: false }
+    : { retryable: true,  unknown: true };
+  return { retryable: false, unknown: false };
+}
+
+// ca3b's lesson, which ca7 already applied to the 20s load timeout: say what was
+// observed, not what it probably means. "Could not be sent" is a claim about the
+// sheet, and a timeout is not evidence for it. Re-sending is safe and says so:
+// doPost is update-or-insert keyed on the date, under a script lock.
+function writeAttemptText(err) {
+  const base = err && err.name === 'TimeoutError'
+    ? `the server did not reply within ${ATTEMPT_TIMEOUT_MS / 1000} seconds.`
+    : (err && err.message) || 'the write did not go through.';
+  return err && err.unknown
+    ? base + ' The app never heard back, so whether it reached the sheet is not known.'
+    : base;
+}
 // <<< ENTRY
 
 // ── Unsent queue (writer only) ─────────────────────────────────────────────
@@ -928,6 +975,8 @@ function queueMerge(entries, iso, values, now) {
     at: prev ? prev.at : now,
     tries: prev ? prev.tries : 0,
     lastError: null,
+    // Whether the last attempt left it unknown if the sheet got it (ca10).
+    unknown: false,
   });
   out.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0));
   return out;
@@ -969,9 +1018,19 @@ function queueBannerLines(entries, note, now, label) {
     const days   = entries.map(e => label(e.iso)).join(', ');
     const oldest = entries.reduce((m, e) => Math.min(m, e.at || now), now);
     const stuck  = now - oldest >= QUEUE_STUCK_MS;
+    // ca10: after a timeout the app has not observed that the sheet is missing
+    // this — it observed only that nothing came back. Two wordings, and the
+    // weaker claim wins as soon as one entry is in that state.
+    const unconfirmed = entries.some(e => e.unknown);
+    const what = unconfirmed
+      ? ['1 entry has not been confirmed by the sheet', 'entries have not been confirmed by the sheet']
+      : ['1 entry has not reached the sheet yet', 'entries have not reached the sheet yet'];
     lines.push(entries.length === 1
-      ? `1 entry has not reached the sheet yet (${days}).`
-      : `${entries.length} entries have not reached the sheet yet (${days}).`);
+      ? `${what[0]} (${days}).`
+      : `${entries.length} ${what[1]} (${days}).`);
+    if (unconfirmed) lines.push(
+      'The app never heard back on the last attempt, so one of these may already be on the sheet. ' +
+      'Sending it again is safe either way — it rewrites that day rather than adding a second row.');
     lines.push(stuck
       ? 'The oldest has been waiting more than a day. The sheet still does not have it — ' +
         'it is worth checking why before it drifts any further.'
@@ -983,9 +1042,22 @@ function queueBannerLines(entries, note, now, label) {
       'The sheet has not been looked at again since you typed them.');
     const errs = entries.map(e => e.lastError).filter(Boolean);
     if (errs.length) lines.push('Last attempt: ' + errs[errs.length - 1]);
+    // Each send already retries the flaky hop a few times, so this counts sends,
+    // not requests. One is a flake; several is an outage worth acting on.
+    const tries = entries.reduce((m, e) => Math.max(m, e.tries || 0), 0);
+    if (tries > 1) lines.push(`Sent again ${tries} times so far without a confirmation.`);
   }
   if (note && Array.isArray(note.text)) for (const t of note.text) lines.push(t);
   return lines;
+}
+
+// The per-day line both write paths use for a failure. Same rule as the banner:
+// only a reply that was actually read may say the sheet does not have it.
+function unsentNoteText(label, text, unknown) {
+  return unknown
+    ? `${label} was sent, but nothing came back to confirm it: ${text} It is kept here, and ` +
+      'sending it again is safe — it rewrites that day rather than adding a second row.'
+    : `${label} could not be sent: ${text}`;
 }
 // <<< QUEUE
 
@@ -1213,26 +1285,78 @@ function readForm() {
   return form;
 }
 
+// How long a whole write may take, retries and backoff included. Mike pressing
+// Save is watching a spinner; a boot-time flush is not, so it may keep trying
+// longer. Both are wall-clock deadlines rather than attempt counts because a
+// timeout costs 45s and a 404 costs a moment — the same four attempts mean very
+// different waits.
+const WRITE_BUDGET_SAVE  = 100000;
+const WRITE_BUDGET_FLUSH = 180000;
+
 // JSONP is GET-only, so the write path is a real fetch. text/plain keeps it a
 // "simple" request: Apps Script cannot answer a CORS preflight, and an
 // application/json content type would provoke one and fail before it left.
-function postEntry(iso, values) {
+function postOnce(iso, values) {
   return fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ t: TOKEN, date: iso, values: values }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
   }).then(res => res.text().then(text => {
+    // The flaky second hop, which answers an HTML error page rather than JSON.
+    // Flagged rather than parsed so the retry above can tell it apart from a
+    // reply this app simply could not read.
+    if (res.status === 404 || res.status >= 500) {
+      const e = new Error(`the server answered HTTP ${res.status}.`);
+      e.hopStatus = res.status;
+      throw e;
+    }
     let reply;
     try { reply = JSON.parse(text); }
     catch (e) { throw new Error(`the server replied with something that is not an answer (HTTP ${res.status})`); }
-    // `read-only` is the third refusal shape, and the only one the read path
-    // can never see: it is the server proving a remembered "writer" wrong. Both
-    // callers below turn this into a refusal they show; forgetting the role is
-    // what stops the next cold start offering the Log tab all over again.
-    if (reply && reply.ok !== true && isRefusal(reply.error)) forgetRole();
     return reply;
   }));
+}
+
+// The single write path: saveEntry and flushQueue both come through here, so the
+// retry lives here and nowhere else. `onRetry` is how a caller that has a person
+// watching says so on screen — a silent two-minute spinner is the kind of quiet
+// failure this project keeps paying for.
+async function postEntry(iso, values, budgetMs, onRetry) {
+  // Not `budgetMs ||`: a caller asking for no room at all must get no room,
+  // not the default two minutes.
+  const deadline = Date.now() + (budgetMs == null ? WRITE_BUDGET_SAVE : budgetMs);
+  for (let attempt = 1; ; attempt++) {
+    let reply = null, problem = null;
+    try { reply = await postOnce(iso, values); }
+    catch (e) { problem = e; }
+
+    if (!problem) {
+      // A reply is final, refusal or not — the server answered, and asking again
+      // gets the same answer. ca9a's role check sits here, outside the retry, so
+      // no retry can re-fire forgetRole() and no short-circuit can skip it:
+      // `read-only` is the server proving a remembered "writer" wrong, and the
+      // one refusal shape the read path can never see.
+      if (reply && reply.ok !== true && isRefusal(reply.error)) forgetRole();
+      return reply;
+    }
+
+    const kind = writeFailureKind(problem, navigator.onLine);
+    problem.unknown  = kind.unknown;
+    problem.attempts = attempt;
+    const wait = attempt * RETRY_PAUSE_MS;
+    // Stop before starting an attempt the budget cannot pay for, rather than
+    // after blowing it.
+    if (!kind.retryable || attempt >= RETRY_ATTEMPTS ||
+        Date.now() + wait + ATTEMPT_TIMEOUT_MS > deadline) {
+      if (attempt > 1) console.warn(`Write for ${iso} gave up after ${attempt} attempts:`, problem);
+      throw problem;
+    }
+    console.warn(`Write attempt ${attempt} for ${iso} did not get through ` +
+      `(${problem.message}) — trying again in ${wait}ms`);
+    if (onRetry) onRetry(attempt + 1);
+    await new Promise(r => setTimeout(r, wait));
+  }
 }
 
 async function saveEntry(iso) {
@@ -1257,7 +1381,8 @@ async function saveEntry(iso) {
   if (btn) btn.disabled = true;
   setSaveStatus('Saving…', '');
   try {
-    const res = await postEntry(iso, diff);
+    const res = await postEntry(iso, diff, WRITE_BUDGET_SAVE,
+      n => setSaveStatus(`Still saving — the server did not answer, trying again (attempt ${n})…`, ''));
     if (!res || res.ok !== true) {
       const err = new Error(writeErrorText(res && res.error));
       err.refusal = isRefusal(res && res.error);
@@ -1278,20 +1403,21 @@ async function saveEntry(iso) {
     console.error('Write failed:', e);
     // Never optimistic. Nothing here claims the sheet has it — and pressing Save
     // again rewrites the same row rather than adding a second.
-    const text = e.name === 'TimeoutError'
-      ? 'the server did not reply within 30 seconds.' : e.message;
+    const text = writeAttemptText(e);
     if (e.refusal) {
       // A refusal will refuse again for as long as the link is what it is.
       // Queueing it would pin a banner no retry could ever clear.
       setSaveStatus('NOT saved — ' + text, 'bad');
-    } else if (queueEntry(iso, diff, text)) {
+    } else if (queueEntry(iso, diff, text, !!e.unknown)) {
       // Kept, not lost. The card closes because the values are safe in the
       // queue and shown on its summary line; the banner says the rest.
       _openDate = null;
       redraw();            // the `finally` below still clears _saving
       return;
     } else {
-      setSaveStatus('NOT saved, and this phone would not keep it to send later — ' + text +
+      setSaveStatus((e.unknown
+        ? 'Not confirmed, and this phone would not keep it to send later — '
+        : 'NOT saved, and this phone would not keep it to send later — ') + text +
         ' Do not close the app: press Save again, or write the numbers down.', 'bad');
     }
   } finally {
@@ -1334,11 +1460,14 @@ function saveQueue() {
   }
 }
 
-function queueEntry(iso, values, lastError) {
+function queueEntry(iso, values, lastError, unknown) {
   _queue = queueMerge(_queue, iso, values, Date.now());
   const e = _queue.find(q => q.iso === iso);
   e.tries = (e.tries || 0) + 1;
   e.lastError = lastError || null;
+  // Only the newest attempt decides the wording: an entry that timed out once
+  // and has since been cleanly refused is no longer in doubt, and vice versa.
+  e.unknown = !!unknown;
   return saveQueue();
 }
 
@@ -1432,7 +1561,7 @@ async function flushQueue(manual) {
   try {
     for (const e of _queue.slice()) {
       try {
-        const res = await postEntry(e.iso, e.values);
+        const res = await postEntry(e.iso, e.values, WRITE_BUDGET_FLUSH);
         if (!res || res.ok !== true) {
           const err = new Error(writeErrorText(res && res.error));
           err.refusal = isRefusal(res && res.error);
@@ -1447,14 +1576,14 @@ async function flushQueue(manual) {
         // entry still leaves the queue — but the warning must not leave with it.
         for (const w of writeWarnings(res)) notes.push(`${dayLabel(e.iso)} saved, but ${w}`);
       } catch (err) {
-        const text = err.name === 'TimeoutError'
-          ? 'the server did not reply within 30 seconds.' : err.message;
+        const text = writeAttemptText(err);
         e.tries = (e.tries || 0) + 1;
         e.lastError = text;
+        e.unknown = !!err.unknown;
         notes.push(err.refusal
           ? `${dayLabel(e.iso)} could not be sent: ${text} It is still here, and nothing more ` +
             'will send until that is sorted out.'
-          : `${dayLabel(e.iso)} could not be sent: ${text}`);
+          : unsentNoteText(dayLabel(e.iso), text, err.unknown));
         console.error('Flush failed on', e.iso, err);
         break;   // whatever stopped this one will stop the rest; they keep their turn
       }

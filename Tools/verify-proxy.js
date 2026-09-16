@@ -92,6 +92,12 @@ const loadSafety  = () => block('SAFETY',
 // Apps Script redirects /exec to a second Google host, and that second hop
 // intermittently 404s or 5xxs under back-to-back requests. Retry a few times,
 // out loud — a genuine 404 still fails the run rather than hiding in here.
+// ca10 gave the app the same rule, in index.html's postEntry(): 4 attempts, the
+// same attempt * 1000 backoff, said out loud. Keep the two in step — a flake
+// this tool tolerates and the app calls a failure means this tool is not
+// verifying the app. If they ever have to differ, say why in BOTH places. The
+// app's deadline IS deliberately different: it stops on wall-clock time as well,
+// because a phone has someone watching a spinner and this does not.
 async function call(url, token, attempt = 1) {
   const res = await fetch(token === null ? url : `${url}?t=${encodeURIComponent(token)}`,
     { signal: AbortSignal.timeout(45000) });

@@ -18,16 +18,26 @@ const b = src.indexOf('// <<< QUEUE');
 if (a < 0 || b < 0) throw new Error('Could not find the QUEUE markers in index.html');
 const Q = new Function(
   `${src.slice(a, b)}; return { QUEUE_KEY, QUEUE_STUCK_MS, isQueueEntry, queueMerge,
-     queueParse, lostQueueText, queueBannerLines };`)();
+     queueParse, lostQueueText, queueBannerLines, unsentNoteText };`)();
 
 // The refusal list lives with the write path, in the ENTRY block, because that
 // is where it is used first. Check it from here too: which errors never queue
 // is a queue rule.
 const ea = src.indexOf('// >>> ENTRY');
 const eb = src.indexOf('// <<< ENTRY');
-const E = new Function(`${src.slice(ea, eb)}; return { isRefusal, describeValues, writeWarnings };`)();
+const E = new Function(`${src.slice(ea, eb)}; return { isRefusal, describeValues, writeWarnings,
+  writeFailureKind, writeAttemptText, RETRY_ATTEMPTS, ATTEMPT_TIMEOUT_MS };`)();
 
 let failed = 0;
+// Three false greens in this plan have been node exiting 0 on an await nobody
+// resolved, so the run ending is itself a check.
+let finished = false;
+process.on("exit", code => {
+  if (!finished && code === 0) {
+    console.log("\n"+"  FAIL  the run ended before the last check");
+    process.exitCode = 1;
+  }
+});
 const pass = m => console.log(`  ok    ${m}`);
 const fail = m => { failed++; console.log(`  FAIL  ${m}`); };
 const is = (actual, expected, what) =>
@@ -149,6 +159,53 @@ has(E.writeWarnings({ ok: true, unreadableDates: ['13/09/2026'] }), 'date order'
   'a row that could not be ordered still warns');
 is(E.writeWarnings({ ok: true, textNotStored: ['Note'], unreadableDates: ['x'] }).length, 2,
   'both warnings survive together');
+
+console.log('\nwriteFailureKind — worth retrying, and did it land? (ca10)');
+const named = n => { const e = new Error('x'); e.name = n; return e; };
+same(E.writeFailureKind(named('TimeoutError'), true), { retryable: true, unknown: true },
+  'a timeout is retried, and may already be on the sheet — ca10\'s live failure');
+const hop = new Error('the server answered HTTP 404.'); hop.hopStatus = 404;
+same(E.writeFailureKind(hop, true), { retryable: true, unknown: true },
+  'the flaky second hop is retried, and the write may have run before the reply was lost');
+same(E.writeFailureKind(named('TypeError'), false), { retryable: false, unknown: false },
+  'no connection at all: nothing landed, and retrying now is pointless');
+same(E.writeFailureKind(named('TypeError'), true), { retryable: true, unknown: true },
+  'a TypeError with a connection is a redirect that failed CORS — retry, and claim nothing');
+same(E.writeFailureKind(new Error('not an answer (HTTP 200)'), true),
+  { retryable: false, unknown: false },
+  'a reply that was read and made no sense is not bad luck — asking again gets it again');
+
+console.log('\nwriteAttemptText — say what was observed, never what it means');
+const to = named('TimeoutError'); to.unknown = true;
+has([E.writeAttemptText(to)], String(E.ATTEMPT_TIMEOUT_MS / 1000) + ' seconds',
+  'the timeout says how long it waited');
+has([E.writeAttemptText(to)], 'not known', 'and that whether it reached the sheet is not known');
+hasNo([E.writeAttemptText(to)], 'could not', 'it never claims the write did not happen');
+is(E.writeAttemptText(new Error('This link is not valid any more.')),
+  'This link is not valid any more.',
+  'a refusal is quoted as-is — nothing is softened onto the end of it');
+
+console.log('\nunsentNoteText — one wording for both write paths');
+has([Q.unsentNoteText('day 15', 'x', false)], 'could not be sent',
+  'an observed failure says so plainly');
+hasNo([Q.unsentNoteText('day 15', 'x', true)], 'could not be sent',
+  'an unconfirmed one does not');
+has([Q.unsentNoteText('day 15', 'x', true)], 'sending it again is safe',
+  'and says re-sending is safe, because doPost rewrites that day');
+
+console.log('\nthe banner does not assert what was never observed (ca10)');
+const unk = [{ iso: '2026-09-15', values: { Temp: '99' }, at: NOW, tries: 1, unknown: true }];
+hasNo(Q.queueBannerLines(unk, null, NOW, label), 'has not reached the sheet yet',
+  'after a timeout it does not tell Mike the sheet is missing it');
+has(Q.queueBannerLines(unk, null, NOW, label), 'may already be on the sheet',
+  'it says what is actually true: it may be there');
+has(Q.queueBannerLines([{ iso: '2026-09-15', values: { Temp: '99' }, at: NOW, tries: 1 }],
+  null, NOW, label), 'has not reached the sheet yet',
+  'an ordinary offline entry keeps the plain wording');
+hasNo(Q.queueBannerLines(unk, null, NOW, label), 'Sent again',
+  'one send is not worth counting out loud');
+has(Q.queueBannerLines([Object.assign({}, unk[0], { tries: 3 })], null, NOW, label),
+  'Sent again 3 times', 'but a stuck entry shows its count — a flake and an outage look different');
 
 console.log('\ndescribeValues — one wording for confirm, card and discard');
 same(E.describeValues({ Temp: '97.80', Note: '' }), ['Temp: 97.80', 'Note: (cleared)'],
@@ -349,6 +406,148 @@ function typeTemp(api, temp) {
       'a flush that landed behind an open form says the list is older than the write');
   }
 
+
+  // ── ca10: the flaky second hop ─────────────────────────────────────────────
+  // Apps Script's /exec redirects to a second Google host that intermittently
+  // 404s, 5xxs, or simply never answers. verify-proxy has retried that since ca5;
+  // the app did not, and on 2026-09-15 a row that WAS written was reported to
+  // Mike as a write that failed.
+  //
+  // The backoff is a real await, so these boots get a real setTimeout — but only
+  // for the sub-second retry pause. The page's own 20s load timer stays the no-op
+  // it is in every other check here, or every boot would hold the process open.
+  const realTimeout = setTimeout;
+  const RETRY_ENV = { setTimeout: (fn, ms) => (ms >= 5000 ? 0 : realTimeout(fn, ms)) };
+  const RETRY_EXPOSE = EXPOSE.replace('{',
+    '{ postEntry, setRetryPause: ms => { RETRY_PAUSE_MS = ms; },');
+  const bootRetry = o => {
+    const api = bootPage(Object.assign({ expose: RETRY_EXPOSE, env: RETRY_ENV }, o));
+    api.setRetryPause(5);
+    return api;
+  };
+
+  // Answers a scripted sequence of HTTP outcomes, so "flaked once, then worked"
+  // is a real second request rather than a mocked verdict. A number is an HTTP
+  // status with Google's error page in the body; 'timeout' is the AbortSignal
+  // rejection; anything else is a JSON reply. Past the end the last step repeats,
+  // which is what an outage looks like.
+  function scriptedStub(steps) {
+    const calls = [];
+    const fn = (url, init) => {
+      calls.push(JSON.parse(init.body));
+      const step = steps[Math.min(calls.length - 1, steps.length - 1)];
+      if (step === 'timeout') {
+        const e = new Error('signal timed out');
+        e.name = 'TimeoutError';
+        return Promise.reject(e);
+      }
+      if (typeof step === 'number') return Promise.resolve({
+        status: step,
+        text: () => Promise.resolve('<html>Sorry, the file you have requested does not exist.</html>'),
+      });
+      return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(step)) });
+    };
+    fn.calls = calls;
+    return fn;
+  }
+
+  console.log('\na flake on the second hop is retried, not reported as a failure (ca10)');
+  {
+    const s6 = makeStore();
+    const dead = fetchStub(() => new Error('Failed to fetch'));
+    const api = bootRetry({ store: s6, fetch: dead });
+    openLog(api); typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
+    is(api.getQueue().length, 1, 'one day waiting to be sent');
+
+    const flaky = scriptedStub([404, { ok: true, action: 'inserted' }]);
+    const api2 = bootRetry({ store: s6, fetch: flaky });
+    openLog(api2); api2.setOpenDate(null);
+    await api2.flushQueue(true);
+    is(flaky.calls.length, 2, 'the 404 from Google is tried again rather than believed');
+    same(flaky.calls[1], flaky.calls[0], 'and the retry sends exactly the same patch');
+    is(api2.getQueue().length, 0, 'the entry leaves on the confirmation, and only then');
+    is(api2.getNote(), null, 'a flake that was survived is not reported as a problem');
+    const api3 = bootRetry({ store: s6, fetch: dead });
+    is(api3.getQueue().length, 0, 'and it does not come back on a reload — it was sent once');
+  }
+
+  console.log('\na retry while Mike is watching says so on screen');
+  {
+    const s7 = makeStore();
+    const flaky = scriptedStub([500, { ok: true, action: 'inserted' }]);
+    const api = bootRetry({ store: s7, fetch: flaky });
+    openLog(api);
+    // The page overwrites #saveStatus as it goes, so keep every line it wrote:
+    // "Saving…" followed two seconds later by "Saved" tells nobody a retry
+    // happened, and a silent spinner is the failure this project keeps paying for.
+    const seen = [];
+    const el = api._el('saveStatus');
+    Object.defineProperty(el, 'textContent', {
+      set(v) { seen.push(v); this._v = v; }, get() { return this._v || ''; },
+    });
+    typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(flaky.calls.length, 2, 'the save itself retried');
+    has(seen, 'trying again', 'and the spinner said why it was still going');
+    is(api.getQueue().length, 0, 'a write that got through on the retry is not queued');
+  }
+
+  console.log('\na refusal is answered once — a retry loop behind it would never clear');
+  {
+    const s8 = makeStore();
+    const refused = scriptedStub([{ ok: false, error: 'read-only' }]);
+    const api = bootRetry({ store: s8, fetch: refused });
+    openLog(api); typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(refused.calls.length, 1, 'a refusal is a reply: asking again gets the same answer');
+    is(api.getQueue().length, 0, 'and it is still never queued');
+    is(api._el('saveStatus').textContent.startsWith('NOT saved'), true,
+      'a refusal WAS observed, so it may still say NOT saved');
+  }
+
+  console.log('\nan outage exhausts the budget, and is visible when it does');
+  {
+    const s9 = makeStore();
+    const outage = scriptedStub([500]);
+    const api = bootRetry({ store: s9, fetch: outage });
+    openLog(api); typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(outage.calls.length, E.RETRY_ATTEMPTS,
+      'it stops at the shared attempt count — a retry with no end hides a real outage');
+    is(api.getQueue().length, 1, 'the entry stays, because nothing confirmed it');
+    is(api.getQueue()[0].unknown, true,
+      'and it is marked unconfirmed: the hop can 500 after doPost has already run');
+
+    const api2 = bootRetry({ store: s9, fetch: outage });
+    openLog(api2);
+    const html = api2._el('app').innerHTML;
+    is(html.includes('may already be on the sheet'), true,
+      'the banner says what was observed and no more');
+    is(html.includes('has not reached the sheet yet'), false,
+      'it does not tell Mike the sheet is missing a row that may be sitting in it');
+  }
+
+  console.log('\nthe budget, not the attempt count, is what stops a timeout retrying');
+  {
+    // A timeout costs 45 seconds a go; a 404 costs a moment. Same four attempts,
+    // very different waits — so the stop is a wall-clock deadline.
+    const s10 = makeStore();
+    const slow = scriptedStub(['timeout']);
+    const api = bootRetry({ store: s10, fetch: slow });
+    let caught = null;
+    try { await api.postEntry(DAY_A, { Temp: '99' }, 0); } catch (e) { caught = e; }
+    is(slow.calls.length, 1, 'a budget with no room does not start an attempt it cannot pay for');
+    is(caught && caught.unknown, true, 'and what it throws says the write may have landed anyway');
+    has([E.writeAttemptText(caught)], 'not known', 'which is what the person is told');
+
+    const slow2 = scriptedStub(['timeout']);
+    const api2 = bootRetry({ store: s10, fetch: slow2 });
+    try { await api2.postEntry(DAY_A, { Temp: '99' }, 200000); } catch (e) { /* expected */ }
+    is(slow2.calls.length, E.RETRY_ATTEMPTS,
+      'with room, a timeout IS retried — re-sending a date doPost already has rewrites it, never doubles it');
+  }
+
+  finished = true;
   console.log(failed ? `\n${failed} FAILED` : '\nAll checks passed');
   process.exit(failed ? 1 : 0);
-})();
+})().catch(e => { console.error("  FAIL  the check itself threw:", e); process.exit(1); });
