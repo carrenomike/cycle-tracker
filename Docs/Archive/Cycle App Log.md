@@ -1543,12 +1543,27 @@ token clears role and cache but not the queue, the same token clears neither, an
 `read-only` forgetting the role in memory, in the tab and in storage). All 8
 mutations tested red first. All 8 self-checks PASS.
 
-### Outstanding
+### Live (2026-09-15)
 
-**Tirzah's aeroplane-mode check is still deferred, not waived** (her phone is
-away for a few days). It now covers ca9 as well: dated dashboard, no tab bar, no
-entry form. The reader half of `render-selfcheck`'s cold-start section is the
-only thing standing in for it — and, after finding 1, that is a slightly stronger
-stand-in than it was.
+Deployed at `6f03eba` and passed by Mike on the phone, writer side and reader
+side both.
 
-Live test of everything above is Mike's.
+The reader half was run as a **link swap on Mike's own phone** — the writer link
+had been in that browser since ca9, so pasting the reader link over it is exactly
+finding 1's scenario, run for real rather than under a stub. It behaved: no tab
+bar, no entry form, and a cold start in aeroplane mode drew the dated dashboard.
+Before the fix that same swap would have kept role `writer` until the first
+successful read, so this is the strongest possible pass for F1 — the test and the
+defect are the same event.
+
+**Tirzah's aeroplane-mode check is closed on this, not waived into nothing.** The
+reader surfaces are the same code whoever holds the link, so the functional half
+is genuinely covered. What is *not* covered is her device: the plan targets Chrome
+on Android and hers has not been checked. That is a device caveat now, not an
+outstanding test, and it is not worth blocking ca10 on.
+
+Two things Mike should keep in mind after a swap like this, both by design rather
+than by accident: the reader token overwrites `cycleToken`, so the writer link has
+to come from wherever it is saved (the app scrubs `#t=` from the address bar once
+it stores it); and `cycleQueue` deliberately survives the swap, so any unsent
+writer entries sit there until the writer link is back.
