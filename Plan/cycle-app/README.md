@@ -83,6 +83,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 5 | `slice-ca5-catch-up-entry.md` | Writer-only Log tab, catch-up list newest first | 4 |
 | 5a | `slice-ca5a-checkpoint-review.md` | Checkpoint review of `5d08ce9..HEAD` (ca5) — the reworked `render()`, the cache record, the write endpoint | 5 |
 | 6 | `slice-ca6-write-queue.md` | Local unsent queue + persistent banner, sheet stays source of truth | 5 |
+| 6a | `slice-ca6a-checkpoint-review.md` | Checkpoint review of `db5a8ee..HEAD` (ca5a + ca6) — the three-way save failure, both `render()` exits, the extracted write helpers, the flush loops | 6 |
 | 7 | `slice-ca7-viewer-staleness.md` | Viewer cache, dismissible staleness banner, 3-day expiry | 3 |
 | 7a | `slice-ca7a-checkpoint-review.md` | Checkpoint review of `24f6067..HEAD` (ca7) — the cache, the expiry override, the reworked read path | 7 |
 | 8 | `slice-ca8-review.md` | Code review of the whole plan's committed diff | all |

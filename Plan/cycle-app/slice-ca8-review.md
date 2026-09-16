@@ -49,3 +49,15 @@ Every earlier slice, landed and committed.
   `location.replace(pathname + '?v=<now>')` once per tab to escape a cached page pointing at an archived `/exec`.
   Confirm it cannot loop (it is gated on `sessionStorage.cycleSelfRefreshed` and on no successful load having
   happened), and that a genuinely offline phone still lands on the cached dashboard rather than a reload cycle.
+
+## Added by ca6 (2026-09-15)
+
+- **"Stuck queue" on the failure-path list now has an owner.** ca6 built it: `cycleQueue`, the persistent
+  non-dismissible writer-only banner, and `Tools/queue-selfcheck.js`. Review it as ca6 left it. The paths worth
+  re-reading by hand rather than trusting the check: storage refusing `setItem` (the only failure in this app that
+  loses real work), and an entry that is refused *after* it is already queued — it stays by design, so confirm the
+  banner still offers a way out and does not simply sit there forever.
+- **New invariant for the review to hold everything else against:** `ok: true` from `doPost` means the request was
+  accepted, not that the sheet holds what was sent. Anywhere the client treats a write reply as a copy of the row
+  is a finding.
+- ca6a reviews `db5a8ee..HEAD` first, so ca8 can take that range as read unless ca6a recorded an open deviation.

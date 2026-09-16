@@ -981,3 +981,106 @@ already warned that the two had to agree and that warning did not stop it.
 
 Worth naming: the comment was right and still lost. A note telling the next person
 to keep two numbers in step is weaker than not having two numbers.
+
+## ca6 — the unsent write queue (2026-09-15, commit 9556f6a)
+
+The slice in one sentence: a write that fails is kept on the phone until the sheet
+confirms it, and nothing about it is ever allowed to disappear quietly.
+
+### The shape that fell out of the locked decisions
+
+"The sheet is the single source of truth" and "an entry never leaves the queue
+except by a confirmed successful write" between them settle almost every design
+question, and settle some of them against the obvious answer.
+
+- **Its own storage key.** `cycleQueue`, not `cycleCache`. ca7's quota recovery
+  drops the display cache to make room; if unsent entries lived in the same
+  record, the recovery path would delete the one thing in this app that exists
+  nowhere else. Now the relationship runs the other way: `saveQueue()` drops
+  `cycleCache` to make room for the queue.
+- **One entry per date, merged.** `doPost` is update-or-insert *per date*. Two
+  queued entries for the same day are therefore not two writes — the second
+  replaces the first in the sheet and the earlier edit is gone. `queueMerge`
+  folds them, newest field wins, and keeps the original `at` so the "stuck for a
+  day" clock runs from the first attempt rather than restarting on every edit.
+- **The re-read is not optional.** On `ok: true` the entry is dropped and
+  `loadData()` runs. The queued copy is never promoted into the display, because
+  `ok` means "the endpoint accepted it", not "the sheet holds this".
+- **Refusals are never queued.** `read-only` / `no-access` / `not-configured`
+  will not succeed on a retry, so queueing one builds a banner that can never
+  clear. The save path checks `isRefusal` and shows ca5's `NOT saved — …` line
+  instead. An entry *already* queued that then gets refused still stays (the
+  locked decision allows no other exit) and the banner says plainly that nothing
+  more will send until it is sorted out.
+- **A Discard button, confirmed.** The one deliberate exception, and the reason
+  the rule above is survivable: without a way out by hand, a permanently
+  unsendable entry is a permanently unclearable banner. The confirmation lists
+  every day and every value being thrown away and says the sheet does not have
+  them.
+
+### Where it could have gone silent, and does not
+
+Per the global rule about background failures, every path that could swallow
+something now leaves a line that survives a reload:
+
+- storage unreadable at boot, or unreadable entries inside it (counted, and the
+  rubbish replaced so the message is not repeated forever);
+- `setItem` refused even after the cache was dropped — the banner then says the
+  list will not survive a reload and to write the numbers down;
+- a partial flush — the loop stops at the first failure, since whatever stopped
+  one will stop the rest, and the remaining entries keep their place in date
+  order;
+- ca5a's `textNotStored` / `unreadableDates`, which arrive *with* a successful
+  write. The entry leaves (the row was written; re-sending changes nothing) but
+  the warning does not leave with it.
+
+The banner is deliberately uncapped, unlike `bannerHTML`'s
+`MAX_BANNER_WARNINGS = 4`. Truncating a list of warnings about data the sheet
+does not have would defeat the slice.
+
+### Two bugs caught before they shipped
+
+- **A flush would have wiped a half-typed entry.** The first version called
+  `render(allCycles)` when it started. The 10-minute refresh has been suppressed
+  while `_openDate` is set since ca5 for exactly this reason, and a manual flush
+  is at its most useful precisely when a card is open. Now `refreshQueueBanner()`
+  swaps the banner node alone, and `redrawAfterQueueChange()` makes every queue
+  mutation respect the same rule.
+- **A check that could not fail.** The "the queue banner has no dismiss cross"
+  assertion matched `banner queue[^>]*>(?:(?!<\/div>)[\s\S])*banner-x` — which
+  stops at the first inner `</div>` and so could never match anything. Worse, ca7's
+  banner *is* dismissible and both can be on screen at once, so a naive
+  page-wide search would have passed on the wrong banner's cross. It now asks
+  `queueBannerHTML()` directly. Second time in this plan a regex assertion was
+  green because it was incapable of being red.
+
+### The harness
+
+`Tools/render-selfcheck.js` had ~40 lines of stub browser inline. ca6 needed the
+same stubs plus the ability to boot the page **twice against one storage map**,
+which is the only honest way to test "survives a reload". Extracted to
+`Tools/page-harness.js` and shared; `render-selfcheck` still passes unchanged in
+behaviour.
+
+`Tools/queue-selfcheck.js` is in two halves. The first extracts the marked
+`QUEUE` block and tests the pure rules. The second boots the whole page and
+drives the real `saveEntry` / `flushQueue` against a scriptable `fetch`:
+
+- an entry logged with the network down is queued, is on the banner at first
+  paint, and is still there after a reload;
+- a successful flush sends exactly the patch that was typed, empties the queue,
+  leaves no note, and stays empty across a reload;
+- a half-working flush leaves *exactly* the day that failed, and says so on
+  screen rather than only in the console;
+- a refusal never enters the queue;
+- a success carrying `textNotStored` drops the entry and keeps the warning.
+
+All seven self-checks pass. The live half — aeroplane mode, log, reload, radio
+back on — is Mike's, and he confirmed it on 2026-09-15.
+
+### Worth carrying forward
+
+`ok: true` from a write endpoint is a statement about the request, not about the
+stored data. ca5a learned that from a Note that became a formula; ca6 had to
+build the queue around the same distinction. Any future write path should assume
+the reply is a receipt, not a copy of the row.
