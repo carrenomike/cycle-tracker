@@ -5,7 +5,7 @@
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session
 start, the README isn't — this line is the only way a session learns what "wrap up" means.
 
-**Last reviewed commit:** HEAD at ca6a (reviewed by ca6a). Unreviewed tally: 0 lines. Next slice is **ca8** — the final review, over `1065c1e...HEAD`.
+**Last reviewed commit:** 55db0c4 (reviewed by ca6a). Unreviewed tally: 0 lines. Next slice is **ca8** — the final review, over `1065c1e...HEAD`.
 ## Done
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2 + ca2a** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. `Time` was silently dropped, then recovered from Mike's xlsx export (88 values, the only loss); the script now carries it and refuses unmapped columns.
