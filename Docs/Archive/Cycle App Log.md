@@ -1218,3 +1218,27 @@ load, a missing display cache lands on the error screen, which has no Log tab to
 reach the form from. So every offline test has to start online and turn the radio
 off with the tab already open. ca7's outstanding aeroplane-mode check for Tirzah
 has the same hole in it.
+
+### ca9 stubbed — cold-start offline (2026-09-15)
+
+Written as a stub in the usual shape, to be expanded by the session that runs it.
+It lands **before** ca8, on the same reasoning that pulled ca7 forward ahead of
+ca4: the final review needs a settled diff, and this is a gap in the thing ca8
+is meant to review.
+
+The stub carries the facts ca6a verified rather than leaving the next session to
+rediscover them: the four files the page needs to paint (including Chart.js from
+jsdelivr, the project's only external dependency and cross-origin, so its cached
+copy is an opaque response worth proving before relying on), the fact that
+offline-with-the-tab-open already works through `cycleCache`, and the fact that
+offline with no cache lands on `showError`, which has no tab bar — so a cached
+page still cannot reach the entry form.
+
+The stub's real content is the risk, stated before any code exists: a worker that
+serves `index.html` from cache first is how an app pins itself to an old version
+permanently, and `deploy.bat` would keep reporting success while a phone ran last
+week's safety engine. Network-first for the page, cache only as fallback, and
+nothing from `/exec` in the worker's cache — a second invisible copy of sheet data
+behind the one the staleness banner reports on would undo ca7. It also has to not
+fight ca7's `selfRefresh()`, which exists to escape a cached page pointing at an
+archived `/exec` — exactly the failure a badly-scoped worker would make permanent.

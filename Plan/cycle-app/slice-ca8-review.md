@@ -61,6 +61,10 @@ Every earlier slice, landed and committed.
   accepted, not that the sheet holds what was sent. Anywhere the client treats a write reply as a copy of the row
   is a finding.
 - ca6a reviews `db5a8ee..HEAD` first, so ca8 can take that range as read unless ca6a recorded an open deviation.
+- **ca9 lands before this slice** and is not covered by ca6a: a service worker is the one thing in this app that
+  can pin a phone to an old version of the safety engine while `deploy.bat` reports success. Review it as a
+  deploy-path risk, not only as a feature — confirm the page is network-first and that nothing from `/exec` is in
+  the worker's cache.
 
 ## Added by ca6a (2026-09-15)
 
