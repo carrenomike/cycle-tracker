@@ -1383,3 +1383,68 @@ aeroplane mode with the tab closed. Including, deliberately, the one check that
 proves this slice did no harm: run `deploy.bat`, then open with a signal, and
 confirm the new version is there on the **next** open. Tirzah's ca7 aeroplane-mode
 check re-runs afterwards, and must still show no tab bar.
+
+### ca9 live, and the bug the live pass turned up (2026-09-15)
+
+Deployed as `f9ab1a7`. Mike confirmed the whole exit list on the phone: a cold
+start in aeroplane mode with the tab closed paints the app rather than Chrome's
+offline page, the Log tab is reachable from it, a day logged there queues, and —
+the check that mattered — a phone with a signal gets the new version on the
+**next** open after a `deploy.bat`. The worker is network-first in practice, not
+only in the self-check.
+
+Before that, opening the app produced ca6's queue banner:
+
+> last attempt: the server did not reply within 30 seconds. Tue, Sep 15 could not
+> be sent: the server did not reply within 30 seconds
+
+The dashboard loaded alongside it, which was the first useful fact: the read is a
+JSONP GET to the same `/exec`, so the deployment was live and the token was fine.
+Only `doPost` was failing. `verify.bat` then passed every check end to end,
+including the entire ca5 write endpoint — reader refused, writer write lands,
+inserted in date order, retry does not duplicate, flags, the formula-shaped note,
+the sentinel deleted and the row count back where it started. So not `Code.gs`,
+not the deployment, not the tokens.
+
+A read through the proxy settled it: the sheet already held `2026-09-15` with
+`Temp: "99"`. **The write had landed.** The POST reached `doPost`, the row was
+written, and the reply never made it back inside the client's 30s budget — which
+the client cannot distinguish from a write that never happened, so it queued the
+entry and told Mike it had failed.
+
+Worth recording that ca9 was not live at the time. It was committed as `85f73e5`
+but never pushed; `origin/main` was still `e324f09`. The instinct to suspect the
+thing that just changed was wrong here, and checking took one command.
+
+The cause was already written down in this repo, at `Tools/verify-proxy.js:92`:
+Apps Script redirects `/exec` to a second Google host, and that hop intermittently
+404s or 5xxs under back-to-back requests. Both `call()` and `post()` retry it up
+to four times with a backoff, out loud. `postEntry()` in `index.html` makes one
+attempt. So the tool that verifies the write path has been tolerating a flake the
+app calls a failure, since ca5, and nobody noticed because the tool never failed.
+
+Mike pressed **Try sending now** and it went straight through — same request,
+second attempt, confirmed `ok:true`, entry out of the queue, sheet re-read,
+banner gone. Exactly the shape the retry would have absorbed silently.
+
+This became `slice-ca10-write-retry.md` rather than a fix folded into ca9, and it
+has two halves, because only one of them is the retry. The other is that "could
+not be sent" is a claim about the sheet and a timeout is not evidence for it —
+ca3b's lesson, which ca7 already applied once when it stopped the 20s load
+timeout blaming a quota it had not observed. A queue that cries wolf gets ignored
+right up until it is real.
+
+It also exposed a gap in ca6's own invariant. ca6 recorded that `ok: true` means
+the request was accepted, not that the sheet holds what was sent. The mirror
+image was never written down and is what actually bit: **a timeout does not mean
+the write did not land.** That is now an open deviation in `STATE.md`, owned by
+ca10.
+
+ca6a's two outstanding items closed in the same pass: the `verify-proxy` run
+above, and its live pass — the queue was exercised for real rather than by a
+check, with a genuinely stuck entry flushing on a retry and the banner clearing
+on a confirmed reply.
+
+Still outstanding: **Tirzah's aeroplane-mode check from ca7.** ca9 changed what
+she sees on a cold start, so it now covers ca9 as well — dated dashboard, no tab
+bar, no entry form.

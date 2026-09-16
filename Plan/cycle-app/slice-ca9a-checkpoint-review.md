@@ -31,8 +31,13 @@ produced every defect ca4a, ca5a and ca6a found.
 
 ## Also
 
-- ca6a left a live pass and a `verify-proxy` run outstanding, and ca7 left Tirzah's aeroplane-mode check. If any
-  are still outstanding when this runs, list them for Mike rather than assuming they passed.
+- ca6a's live pass and its `verify-proxy` run are **closed** (2026-09-15), and ca9's phone pass is confirmed on
+  `f9ab1a7`, deploy-then-reopen included. **Tirzah's aeroplane-mode check from ca7 is still outstanding** — and
+  ca9 changed what she sees on a cold start, so it now covers ca9 too: dated dashboard, no tab bar, no entry
+  form. List it for Mike rather than assuming it passed.
+- ca10 was stubbed out of this session: a write landed and was reported as failed, because the app does not retry
+  the flaky Apps Script hop that `verify-proxy` has retried since ca5. It is not in this review's range, but the
+  asymmetry it names — a timeout is not evidence either way — is worth holding every failure path against.
 - Findings too large to fix here become a numbered slice; findings deliberately not fixed go to STATE's open
   deviations with the reason.
 
