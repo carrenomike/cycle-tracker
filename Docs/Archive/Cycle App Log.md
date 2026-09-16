@@ -1084,3 +1084,101 @@ back on — is Mike's, and he confirmed it on 2026-09-15.
 stored data. ca5a learned that from a Note that became a formula; ca6 had to
 build the queue around the same distinction. Any future write path should assume
 the reply is a receipt, not a copy of the row.
+
+---
+
+## ca6a — checkpoint review of `db5a8ee..HEAD` (ca5a + ca6), 2026-09-15
+
+1,061 insertions across `index.html`, both self-check tools, the new `page-harness`,
+`verify-proxy` and `Code.gs`. Under the 1,500-line trigger, but ca6 changed shared
+code every screen runs through, which is the other half of the checkpoint test.
+Seven named targets; four came back clean, and the three defects the other three
+surfaced turned out to share two roots.
+
+### The one that matters: a save during a flush
+
+ca6 deliberately allows a **manual** flush to run with a card open — it swaps the
+banner alone rather than re-rendering, so the open form survives. That leaves the
+form's Save button live while a flush is in flight, and `saveEntry` guarded only on
+`_saving`.
+
+Save into that window and: `queueEntry` merges the new fields into the very entry
+the flush is mid-way through sending, and then the flush's own
+`_queue.filter(q => q.iso !== e.iso)` drops the merged entry **whole** when the
+`ok:true` it was waiting on arrives. The temperature just typed is gone, and
+nothing on screen says so. That is precisely the loss class ca6 was built to
+prevent, introduced by ca6.
+
+Target 5 had asked whether `_flushing` was enough of a guard. It is — in the
+direction it was written for. It stops a second flush; it does nothing about a
+write coming the other way. One guard in `saveEntry`, where all three write paths
+route through, and it says *"Still sending earlier entries — try again in a
+moment."* rather than failing quietly.
+
+### `escHTML`, again
+
+ca5a lost a log row to an unescaped `<` in a Note and fixed the *call site*.
+Target 4 asked about a quote. `escHTML` covered `< > &` only — and `entryFormHTML`
+feeds it into **attribute** values: `<input value="…">` and, for a select column,
+`<option value="…">` holding whatever the sheet says (ca5 keeps an unrecognised
+migrated value selectable on purpose). A migrated cell containing `"` closed the
+attribute early. Fixed in the helper this time, not the caller: `"` and `'` are
+escaped too, and since an entity renders as the character in text content, every
+other caller is untouched. Sibling-bug rule paid for itself — the queue path the
+target named was the least exposed of the three.
+
+### Invisible when the role has not arrived
+
+`queueBannerHTML` and `flushQueue` both gated on `_role !== 'writer'`. `_role`
+only ever arrives from the display cache or a live read — and `saveQueue` deletes
+that cache to make room when storage is tight. So the case is: writer, offline,
+cache dropped, role `null` → the banner is suppressed and the manual flush is
+unreachable, which is the exact state that most needs both. Worse, with no cache
+at all the screen is `showMessage`, which carried no banner in the first place.
+Now gated on `_role === 'reader'` (a reader can never hold a queue — a refusal is
+never queued) and `showMessage` renders the banner above every message screen.
+
+### Stale "not sent yet"
+
+The `.unsent` span lives on the day card's summary line, not in the banner, so the
+banner-only swap left the spans claiming unsent work after a successful flush —
+with the banner that would have contradicted them gone, because a clean flush
+leaves no note. The cards cannot be re-rendered there (it would wipe the form), so
+the spans now carry `data-iso` and `refreshQueueBanner` removes the ones no longer
+queued; and a flush that sends anything behind an open form leaves a note saying
+the days behind it have not been re-read yet. Nothing on that path calls
+`loadData`, by design, so the summaries really are older than the write.
+
+### Mutation testing caught a third false green
+
+Five checks added. The flush-interleave one passed with the fix reverted: with the
+guard gone `await api2.saveEntry(DAY_A)` blocked on a promise the stub was holding
+open, the event loop emptied, and node exited 0 before a single later assertion
+ran. A check that cannot go red, for the third time in this plan. Reshaped so the
+stub rejects everything after the held first call — the save then lands mid-flush
+*and fails*, which is the only shape in which the old code lost the edit, and both
+paths return. All five go red on mutation.
+
+`page-harness` gained a `document.querySelectorAll` returning `[]`: the stub has
+no element tree, so the span removal itself is unverifiable offline. What the
+offline check pins is the markup contract that makes it possible — that the span
+carries `data-iso`. The surgery is Mike's live pass.
+
+### Recorded, not fixed
+
+- `writeRow`'s read-patch-write reads with `getValues()`, which hands back a
+  formula's *result*; the RAW write then stores that as text. An already-broken
+  Note cell is normalised (`=1+1` → `"2"`) rather than recovered. ca5a stops new
+  ones, and `"2"` beats a live formula — not worth a `getFormulas()` read on every
+  write.
+- `unreadableDates` under-reports: the date scan `break`s on the matched row, so
+  odd cells below it are never seen. The warning's job is to send you to the
+  sheet, and one is enough for that.
+
+### Worth carrying forward
+
+Two of the four defects were a guard that was right about the direction it was
+written for and silent about the other one (`_flushing` blocks flush-on-save but
+not save-on-flush; `!== 'writer'` excludes an unknown role as well as a reader).
+Both read correctly in isolation. Ask of every guard *which states it lets
+through*, not whether the state it names is handled.

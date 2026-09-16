@@ -61,3 +61,17 @@ Every earlier slice, landed and committed.
   accepted, not that the sheet holds what was sent. Anywhere the client treats a write reply as a copy of the row
   is a finding.
 - ca6a reviews `db5a8ee..HEAD` first, so ca8 can take that range as read unless ca6a recorded an open deviation.
+
+## Added by ca6a (2026-09-15)
+
+- **`db5a8ee..HEAD` is reviewed.** Take it as read except for the two open deviations ca6a recorded in `STATE.md`
+  (the formula-Note normalisation and `unreadableDates` under-reporting) — both are accepted, so confirm nothing
+  later came to depend on them being otherwise, and do not re-fix them without asking.
+- **Two of ca6a's four defects were guards that were right about one direction and silent about the other**
+  (`_flushing` blocked a second flush but not a save into one; `_role !== 'writer'` excluded an unknown role along
+  with a reader). Both read correctly in isolation. When reviewing a guard, ask which states it lets *through*.
+  This is the likeliest shape of a remaining cross-slice defect.
+- **Two things are still only pinned offline by a markup contract, not by behaviour:** the removal of a stale
+  `not sent yet` span (the harness has no element tree, so `querySelectorAll` answers `[]`) and everything
+  downstream of `escHTML` inside an attribute. Both are on Mike's live list; if they are still unconfirmed when
+  ca8 runs, they belong on its end-to-end pass.

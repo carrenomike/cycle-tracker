@@ -675,8 +675,14 @@ function stalenessText(at, now) {
     ? `Could not reach the sheet. This is saved data from ${when} — more than 3 days old, so the safety status is hidden until it loads again.`
     : `Could not reach the sheet. Showing saved data from ${when}.`;
 }
+// Quotes are escaped as well as the tag characters: this guard is used on
+// attribute values too (entryFormHTML puts a sheet value in `value="..."` and in
+// `<option value="...">`), and a migrated cell holding a " would otherwise break
+// out of the attribute. In text content an entity renders as the character, so
+// escaping more here costs nothing.
 function escHTML(s) {
-  return String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  return String(s).replace(/[<>&"']/g, c =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // One banner carries both the staleness line and any data-quality warnings, in
@@ -1066,7 +1072,8 @@ function entryScreenHTML(cycles) {
       <button class="day-head" onclick="openDay('${iso}')">
         <span class="day-when">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</span>
         <span class="day-sum">${daySummary(row)}${q
-          ? `<span class="unsent">not sent yet: ${escHTML(describeValues(q.values).join(', '))}</span>` : ''}</span>
+          ? `<span class="unsent" data-iso="${iso}">not sent yet: ${
+              escHTML(describeValues(q.values).join(', '))}</span>` : ''}</span>
       </button>
       ${open ? entryFormHTML(iso, row) : ''}
     </div>`);
@@ -1206,6 +1213,11 @@ function postEntry(iso, values) {
 
 async function saveEntry(iso) {
   if (_saving) return;
+  // A manual flush is allowed to run with a card open, so this button is live
+  // while one is in flight. Saving into that window loses work: queueEntry would
+  // merge the new fields into the entry the flush is mid-way through sending, and
+  // the flush's own `_queue.filter()` would then drop the merged entry whole.
+  if (_flushing) return setSaveStatus('Still sending earlier entries — try again in a moment.', 'bad');
   const row  = _byIso.get(iso) || null;
   const form = readForm();
 
@@ -1309,7 +1321,13 @@ function queueEntry(iso, values, lastError) {
 function queuedFor(iso) { return _queue.find(e => e.iso === iso) || null; }
 
 function queueBannerHTML() {
-  if (_role !== 'writer') return '';   // Tirzah never sees this one
+  // Not `!== 'writer'`: `_role` only arrives from the display cache or a live
+  // read, and saveQueue() deletes that cache to make room. A writer who is
+  // offline with no cache has role `null` — and hiding their unsent entries is
+  // exactly the silent loss this banner exists to prevent. Only a confirmed
+  // reader is excluded, and a reader can never have a queue anyway (a refusal is
+  // never queued).
+  if (_role === 'reader') return '';   // Tirzah never sees this one
   const lines = queueBannerLines(_queue, _queueNote, Date.now(), dayLabel);
   if (!lines.length) return '';
   // No close button, by design: this is not a notice, it is the state of work
@@ -1326,6 +1344,14 @@ function queueBannerHTML() {
 // Swap the banner alone. A full re-render would wipe a half-typed entry, and a
 // flush is at its most useful exactly when a card is open.
 function refreshQueueBanner() {
+  // The day cards carry their own "not sent yet" line, and a flush that landed
+  // while a card was open would leave those lines claiming work the sheet now
+  // has — with the banner that contradicted them gone. The cards are not
+  // re-rendered here (that would wipe the open form), so drop the stale spans.
+  // `data-iso` is what makes them findable; render-selfcheck asserts it is there.
+  for (const s of document.querySelectorAll('.unsent[data-iso]')) {
+    if (!queuedFor(s.getAttribute('data-iso'))) s.remove();
+  }
   const el   = document.getElementById('queueBanner');
   const html = queueBannerHTML();
   if (el && html) el.outerHTML = html;
@@ -1369,7 +1395,7 @@ function discardQueue() {
 // failed — which a parallel send cannot promise. Re-sending is safe: `doPost`
 // updates the row for that date rather than adding a second one.
 async function flushQueue(manual) {
-  if (_flushing || _saving || !_queue.length || _role !== 'writer') return;
+  if (_flushing || _saving || !_queue.length || _role === 'reader') return;   // see queueBannerHTML
   // A flush that re-renders would wipe a half-typed entry, so the automatic one
   // waits (the same rule the 10-minute refresh follows). Mike's own button may
   // go ahead: nothing below re-renders while a card is open.
@@ -1410,6 +1436,11 @@ async function flushQueue(manual) {
       }
     }
   } finally {
+    // Nothing below re-reads the sheet while a card is open, so the list and the
+    // summaries behind the form are older than the write that just landed. Say
+    // so rather than let a stale row read as the current one.
+    if (sent && _openDate) notes.push(`${sent} sent. The days behind this form have not been ` +
+      're-read from the sheet yet — close it, or wait for the next refresh.');
     _queueNote = notes.length ? { at: Date.now(), text: notes } : null;
     if (!saveQueue()) {
       _queueNote = { at: Date.now(), text: notes.concat(
@@ -2185,9 +2216,11 @@ function bootstrapToken() {
 
 const TOKEN = bootstrapToken();
 
+// The queue banner goes above every message screen too. With no cache and no
+// signal there is no render() at all, and unsent entries would be on no screen.
 function showMessage(msg, detail, canRetry) {
   const esc = escHTML;
-  document.getElementById('app').innerHTML = `
+  document.getElementById('app').innerHTML = queueBannerHTML() + `
     <div class="spinner">
       ${esc(msg)}<br>
       ${detail ? `<small>${esc(detail)}</small><br>` : ''}

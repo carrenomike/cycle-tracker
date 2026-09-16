@@ -65,6 +65,12 @@ function bootPage(opts) {
       getElementById,
       createElement: () => ({ set src(_) {}, onerror: null }),
       head: { appendChild() {} },
+      // There is no element tree here — innerHTML is a string — so a selector can
+      // only ever answer "nothing". Present so the page does not throw; the DOM
+      // surgery it feeds (dropping a stale "not sent yet" span) is Mike's live
+      // check. What IS checked offline is the markup contract that makes the
+      // surgery possible: render-selfcheck asserts the span carries data-iso.
+      querySelectorAll: () => [],
     },
     localStorage: opts.store || makeStore(),
     sessionStorage: makeStore(),

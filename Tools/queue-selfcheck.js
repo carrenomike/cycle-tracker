@@ -301,6 +301,54 @@ function typeTemp(api, temp) {
     has(api3.getNote().text, 'formula', 'and it survives a reload, so it cannot be missed');
   }
 
+  console.log('\nsaving while a flush is in flight (ca6a)');
+  {
+    // The banner's "Try sending now" is allowed to run with a card open, so the
+    // form's Save button is live while a flush is in flight. Before ca6a, saving
+    // into that window merged the new fields into the entry the flush was already
+    // sending — and the flush's own filter then dropped the merged entry whole.
+    const s5 = makeStore();
+    const dead = fetchStub(() => new Error('Failed to fetch'));
+    const api = bootPage({ store: s5, fetch: dead, expose: EXPOSE });
+    openLog(api); typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
+    is(api.getQueue().length, 1, 'one day queued to flush');
+
+    // A stub that holds the flush's reply open and refuses everything after it,
+    // so the save really does land mid-flush and really does fail — which is the
+    // only shape in which the old code lost the edit: saveEntry merged 97.99 into
+    // the entry the flush was sending, and the flush then dropped it whole on the
+    // ok:true it was waiting for.
+    const sent = [];
+    let release, calls = 0;
+    const held = new Promise(r => { release = r; });
+    const slow = (url, init) => {
+      sent.push(JSON.parse(init.body));
+      return calls++
+        ? Promise.reject(new Error('Failed to fetch'))
+        : held.then(a => ({ status: 200, text: () => Promise.resolve(JSON.stringify(a)) }));
+    };
+    const api2 = bootPage({ store: s5, fetch: slow, expose: EXPOSE });
+    openLog(api2);
+    api2.setOpenDate(DAY_A);            // a card is open: this is the manual flush
+    const flushing = api2.flushQueue(true);
+    await Promise.resolve();            // let the flush reach its await
+
+    typeTemp(api2, '97.99');
+    await api2.saveEntry(DAY_A);        // returns at the guard; unguarded it posts
+    is(api2._el('saveStatus').textContent.startsWith('Still sending'), true,
+      'a save during a flush is refused, in words, rather than racing it');
+    is(sent.length, 1, 'and it never reached the network behind the flush');
+
+    release({ ok: true, action: 'inserted' });
+    await flushing;
+    same(sent.map(c => c.values), [{ Temp: '97.90' }],
+      'the flush sent the value it started with, once');
+    is(api2.getQueue().length, 0, 'and the confirmed entry left the queue');
+    // Nothing re-read the sheet: the form is still open over a stale list.
+    has(api2.getNote().text, 'not been re-read',
+      'a flush that landed behind an open form says the list is older than the write');
+  }
+
   console.log(failed ? `\n${failed} FAILED` : '\nAll checks passed');
   process.exit(failed ? 1 : 0);
 })();

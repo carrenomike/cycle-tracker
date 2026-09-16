@@ -163,6 +163,17 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     ? pass('a mucus value the option list does not know stays selected')
     : fail('an unknown mucus value was not preserved in the form');
   has(form, 'cervix: high and open', 'the migrated cervix note is shown, not dropped');
+
+  // ca6a: escHTML is the guard on attribute values too, and it did not escape
+  // quotes. A migrated cell holding a " would close `value="` early and put the
+  // rest of the sheet text into the markup as attributes.
+  const quoted = api.entryFormHTML(iso(daysAgo(1)),
+    { 'Cervical Mucus': 'creamy "eggwhite"', Note: 'she said "fine" & left' });
+  /value="creamy &quot;eggwhite&quot;"/.test(quoted)
+    ? pass('a quote in a sheet value stays inside the attribute')
+    : fail(`a quote in a sheet value was not escaped: ${
+        (quoted.match(/value="[^>]*eggwhite[^>]*/) || ['nothing matched'])[0]}`);
+  has(quoted, 'she said &quot;fine&quot; &amp; left', 'and quotes and ampersands survive in the note');
   const d = api.entryDiff(awkward, { Temp: '98.10', Time: '', 'Temp Quality': [],
     Exclude: false, Flow: '', 'Cervical Mucus': 'Lotiony', 'Cervix Texture': '',
     'Cervix Position': '', Breasts: '', Ovulation: true, 'Cycle Start': false,
@@ -198,6 +209,12 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     ? fail('the queue banner has a dismiss cross — it must not be dismissible')
     : pass('the queue banner has no dismiss cross');
   has(qlog, 'not sent yet: Temp: 97.80', 'the day card flags the unsent values rather than hiding them');
+  // ca6a: a flush that lands while a card is open does not re-render the cards,
+  // so refreshQueueBanner has to find these spans and drop the stale ones. The
+  // hook it uses is this attribute; without it the spans would sit there claiming
+  // work the sheet already has.
+  has(qlog, `class="unsent" data-iso="${unsentIso}"`,
+    'the unsent span names its day, so a landed flush can drop it');
   has(qlog, 'Note: (cleared)', 'including a field the entry cleared');
 
   api.setScreen('dashboard', 'writer');
@@ -211,6 +228,14 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   /banner queue/.test(qreader)
     ? fail('the reader was shown the writer-only unsent banner')
     : pass('the reader is never shown the unsent banner');
+
+  // ca6a: `_role` only arrives from the display cache or a live read, and
+  // saveQueue() deletes that cache to make room. A writer offline with no cache
+  // has role null — and that is exactly when unsent entries must not vanish.
+  api.setScreen('dashboard', null);
+  /banner queue/.test(api.queueBannerHTML())
+    ? pass('an unsent entry is still shown before the role is known')
+    : fail('the queue banner was hidden because the role had not arrived yet');
 
   api.setQueue([], null);
   api.setScreen('dashboard', null);
