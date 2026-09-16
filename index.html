@@ -108,6 +108,28 @@ main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
   color: #5d4037;
 }
 .banner div + div { margin-top: 7px; }
+/* The unsent-queue banner. Same shape, no close button: it is not a notice,
+   it is the state of work that has not landed, and it goes when the queue does. */
+.banner.queue {
+  background: #fff3e0;
+  border-color: #ffcc80;
+  border-left-color: #bf360c;
+  padding-right: 16px;
+  color: #4e342e;
+}
+.banner.queue .qbtn {
+  margin: 10px 8px 0 0;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #bf360c;
+  background: white;
+  color: #bf360c;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.banner.queue .qbtn:disabled { opacity: 0.5; }
+.banner.queue .qbtn.discard { border-color: #8d6e63; color: #8d6e63; font-weight: 400; }
 .banner-x {
   position: absolute;
   top: 6px;
@@ -284,6 +306,7 @@ tfoot td {
 .day-card.open .day-head { background: #faf5fd; }
 .day-when { font-weight: 600; white-space: nowrap; }
 .day-sum { color: #888; font-size: 0.8rem; text-align: right; }
+.day-sum .unsent { display: block; color: #bf360c; font-weight: 600; }
 .day-card.unlogged .day-sum { color: #bbb; font-style: italic; }
 .day-body { padding: 4px 14px 16px; border-top: 1px solid #ede7f6; }
 .fld { margin-top: 12px; }
@@ -822,9 +845,32 @@ function suggestCycleStart(flowOn, iso) {
 // so the last thing before a write is a plain list of what is about to be
 // written. Cleared fields say so rather than showing as blank.
 function confirmText(label, diff) {
-  const lines = Object.keys(diff).map(c => `${c}: ${diff[c] === '' ? '(cleared)' : diff[c]}`);
-  return `Save to ${label}?\n\n${lines.join('\n')}`;
+  return `Save to ${label}?\n\n${describeValues(diff).join('\n')}`;
 }
+
+// One spelling of "what this write is about to change", used by the confirm box,
+// by the unsent card and by the discard warning — so a queued entry is never
+// described in different words from the one that was confirmed.
+function describeValues(values) {
+  return Object.keys(values).map(c => `${c}: ${values[c] === '' ? '(cleared)' : values[c]}`);
+}
+
+// ca5a: the write can succeed and still have something to say. Both paths that
+// send — a save and a queue flush — read the same two fields here, or one of
+// them swallows a warning the other shows.
+function writeWarnings(res) {
+  return [].concat(
+    res && res.unreadableDates ? ['the sheet has date cells this app cannot read, so a new row ' +
+                                  'may not be in date order: ' + res.unreadableDates.join(', ')] : [],
+    res && res.textNotStored   ? ['the note may have been stored as a formula rather than as text: ' +
+                                  res.textNotStored.join('; ')] : []);
+}
+
+// These three are refusals, not bad luck: the same request will be refused again
+// for as long as the link is what it is. A refusal is never queued in the first
+// place — queueing one would pin an unsent banner no retry could ever clear.
+const REFUSALS = ['read-only', 'no-access', 'not-configured'];
+function isRefusal(err) { return REFUSALS.indexOf(err) >= 0; }
 
 // What the app says out loud for each error the write endpoint can return.
 // Anything unrecognised is shown verbatim — never swallowed, never softened.
@@ -835,6 +881,103 @@ function writeErrorText(err) {
   return String(err || 'the server sent a reply this app could not read');
 }
 // <<< ENTRY
+
+// ── Unsent queue (writer only) ─────────────────────────────────────────────
+
+// >>> QUEUE — extracted and executed verbatim by Tools/queue-selfcheck.js, which
+// matches on these two marker lines. Keep them, and keep this block free of
+// anything that only exists in a browser.
+
+// Its own storage key, deliberately not `cycleCache`. ca7's quota recovery drops
+// the display cache alone, and that recovery must never be able to take unsent
+// entries — the one thing in this app that exists nowhere else — with it.
+const QUEUE_KEY = 'cycleQueue';
+
+// A queue that has sat for a day is not "retrying", it is stuck. The wording
+// changes so it reads as something to act on rather than something to wait for.
+const QUEUE_STUCK_MS = 24 * 60 * 60 * 1000;
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isQueueEntry(e) {
+  return !!(e && typeof e.iso === 'string' && ISO_RE.test(e.iso) &&
+    e.values && typeof e.values === 'object' && !Array.isArray(e.values) &&
+    Object.keys(e.values).length);
+}
+
+// Two queued entries for one day are not two writes — `doPost` is
+// update-or-insert per date, so the second would simply replace the first and
+// the earlier edit would be lost. Merge instead, newest field wins, and keep the
+// original `at` so the "stuck for a day" clock runs from the first attempt.
+function queueMerge(entries, iso, values, now) {
+  const prev = entries.find(e => e.iso === iso) || null;
+  const out  = entries.filter(e => e.iso !== iso);
+  out.push({
+    iso: iso,
+    values: Object.assign({}, prev ? prev.values : null, values),
+    at: prev ? prev.at : now,
+    tries: prev ? prev.tries : 0,
+    lastError: null,
+  });
+  out.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0));
+  return out;
+}
+
+// Salvage, never discard. Anything in storage that is not a readable entry is
+// counted and reported — a queue that quietly shrinks is the exact silent loss
+// this slice exists to prevent. Note that nothing here is keyed on PROXY_URL:
+// a redeploy changes where to send, not whether the entry is still owed.
+function queueParse(raw) {
+  if (!raw) return { entries: [], note: null, lost: 0 };
+  let q = null;
+  try { q = JSON.parse(raw); } catch (e) { q = null; }
+  // Something was stored and this version cannot read it. How much is unknown.
+  if (!q || !Array.isArray(q.entries)) return { entries: [], note: null, lost: -1 };
+  const good = q.entries.filter(isQueueEntry);
+  return {
+    entries: good,
+    note: (q.note && Array.isArray(q.note.text) && q.note.text.length) ? q.note : null,
+    lost: q.entries.length - good.length,
+  };
+}
+
+function lostQueueText(lost) {
+  if (!lost) return null;
+  return lost < 0
+    ? 'There were unsent entries saved on this phone and they could not be read back. ' +
+      'Check the sheet and re-enter anything missing.'
+    : `${lost} unsent entr${lost === 1 ? 'y' : 'ies'} saved on this phone could not be read back ` +
+      `and ${lost === 1 ? 'is' : 'are'} gone. Check the sheet and re-enter anything missing.`;
+}
+
+// Deliberately uncapped, unlike bannerHTML's MAX_BANNER_WARNINGS: the whole
+// point of this banner is that nothing about an unsent entry gets dropped.
+// `label` is passed in so this stays free of anything browser-only.
+function queueBannerLines(entries, note, now, label) {
+  const lines = [];
+  if (entries.length) {
+    const days   = entries.map(e => label(e.iso)).join(', ');
+    const oldest = entries.reduce((m, e) => Math.min(m, e.at || now), now);
+    const stuck  = now - oldest >= QUEUE_STUCK_MS;
+    lines.push(entries.length === 1
+      ? `1 entry has not reached the sheet yet (${days}).`
+      : `${entries.length} entries have not reached the sheet yet (${days}).`);
+    lines.push(stuck
+      ? 'The oldest has been waiting more than a day. The sheet still does not have it — ' +
+        'it is worth checking why before it drifts any further.'
+      : 'It will be sent again on its own when the app next reaches the sheet.');
+    // The patch was diffed against the sheet as it looked when the form was
+    // opened, and nothing has re-checked it since. Say that rather than imply
+    // the row was looked at again.
+    lines.push('Only the fields you changed will be sent, exactly as you left them. ' +
+      'The sheet has not been looked at again since you typed them.');
+    const errs = entries.map(e => e.lastError).filter(Boolean);
+    if (errs.length) lines.push('Last attempt: ' + errs[errs.length - 1]);
+  }
+  if (note && Array.isArray(note.text)) for (const t of note.text) lines.push(t);
+  return lines;
+}
+// <<< QUEUE
 
 let _openDate    = null;   // the one day whose form is open
 let _savedNote   = null;   // { iso, action } of the last write that reached the sheet
@@ -916,10 +1059,14 @@ function entryScreenHTML(cycles) {
     const row = _byIso.get(iso) || null;
     const day = dayNumberFor(cycles, d);
     const open = _openDate === iso;
+    // The sheet is the record; a queued patch is not in `row` and must never
+    // look as though it is. Shown alongside, flagged, never merged in.
+    const q = queuedFor(iso);
     cards.push(`<div class="day-card${open ? ' open' : ''}${row ? '' : ' unlogged'}">
       <button class="day-head" onclick="openDay('${iso}')">
         <span class="day-when">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</span>
-        <span class="day-sum">${daySummary(row)}</span>
+        <span class="day-sum">${daySummary(row)}${q
+          ? `<span class="unsent">not sent yet: ${escHTML(describeValues(q.values).join(', '))}</span>` : ''}</span>
       </button>
       ${open ? entryFormHTML(iso, row) : ''}
     </div>`);
@@ -1075,32 +1222,205 @@ async function saveEntry(iso) {
   setSaveStatus('Saving…', '');
   try {
     const res = await postEntry(iso, diff);
-    if (!res || res.ok !== true) throw new Error(writeErrorText(res && res.error));
+    if (!res || res.ok !== true) {
+      const err = new Error(writeErrorText(res && res.error));
+      err.refusal = isRefusal(res && res.error);
+      throw err;
+    }
     // Re-read rather than patch the copy in memory: the safety verdict is
     // derived from the sheet, and a backdated write moves it.
     _openDate = null;
     // The write can succeed and still have something to say. ca5a added two such
     // fields server-side and neither was read here — a warning nobody reads is a
     // warning that does not exist.
-    const warn = [].concat(
-      res.unreadableDates ? ['the sheet has date cells this app cannot read, so a new row ' +
-                             'may not be in date order: ' + res.unreadableDates.join(', ')] : [],
-      res.textNotStored   ? ['the note may have been stored as a formula rather than as text: ' +
-                             res.textNotStored.join('; ')] : []);
+    const warn = writeWarnings(res);
     if (warn.length) console.warn('Write warning:', warn);
     _savedNote = { iso: iso, action: res.action || 'saved', warn: warn };
     setSaveStatus('Saved. Reloading…', 'good');
     loadData();
   } catch (e) {
     console.error('Write failed:', e);
-    // Never optimistic. If this says NOT saved, nothing reached the sheet — and
-    // pressing Save again rewrites the same row rather than adding a second.
-    setSaveStatus('NOT saved — ' + (e.name === 'TimeoutError'
-      ? 'the server did not reply within 30 seconds.' : e.message), 'bad');
+    // Never optimistic. Nothing here claims the sheet has it — and pressing Save
+    // again rewrites the same row rather than adding a second.
+    const text = e.name === 'TimeoutError'
+      ? 'the server did not reply within 30 seconds.' : e.message;
+    if (e.refusal) {
+      // A refusal will refuse again for as long as the link is what it is.
+      // Queueing it would pin a banner no retry could ever clear.
+      setSaveStatus('NOT saved — ' + text, 'bad');
+    } else if (queueEntry(iso, diff, text)) {
+      // Kept, not lost. The card closes because the values are safe in the
+      // queue and shown on its summary line; the banner says the rest.
+      _openDate = null;
+      render(allCycles);   // the `finally` below still clears _saving
+      return;
+    } else {
+      setSaveStatus('NOT saved, and this phone would not keep it to send later — ' + text +
+        ' Do not close the app: press Save again, or write the numbers down.', 'bad');
+    }
   } finally {
     _saving = false;
     if (btn) btn.disabled = false;
   }
+}
+
+let _queue     = [];     // unsent entries, one per date, oldest date first
+let _queueNote = null;   // what the last flush had to say; kept across reloads
+let _flushing  = false;
+
+function loadQueue() {
+  let raw = null;
+  try { raw = localStorage.getItem(QUEUE_KEY); }
+  catch (e) { console.error('The unsent queue could not be read from this phone:', e); }
+  const q = queueParse(raw);
+  _queue = q.entries;
+  _queueNote = q.note;
+  const lost = lostQueueText(q.lost);
+  if (lost) {
+    console.error('Unsent entries could not be read back:', raw);
+    _queueNote = { at: Date.now(), text: (_queueNote ? _queueNote.text : []).concat(lost) };
+    saveQueue();   // replace the rubbish, so the message is not repeated forever
+  }
+}
+
+// Returns false if the entry could not be kept. Every caller must say so on
+// screen: this is the one storage failure in the app that loses real work.
+function saveQueue() {
+  const write = () => localStorage.setItem(QUEUE_KEY,
+    JSON.stringify({ entries: _queue, note: _queueNote }));
+  try { write(); return true; }
+  catch (e) {
+    console.error('Could not save the unsent queue:', e);
+    // ca7 makes room by dropping the display cache. Unsent work outranks a
+    // saved copy of data the sheet already has.
+    try { localStorage.removeItem(CACHE_KEY); write(); return true; }
+    catch (e2) { console.error('Still could not save the unsent queue:', e2); return false; }
+  }
+}
+
+function queueEntry(iso, values, lastError) {
+  _queue = queueMerge(_queue, iso, values, Date.now());
+  const e = _queue.find(q => q.iso === iso);
+  e.tries = (e.tries || 0) + 1;
+  e.lastError = lastError || null;
+  return saveQueue();
+}
+
+function queuedFor(iso) { return _queue.find(e => e.iso === iso) || null; }
+
+function queueBannerHTML() {
+  if (_role !== 'writer') return '';   // Tirzah never sees this one
+  const lines = queueBannerLines(_queue, _queueNote, Date.now(), dayLabel);
+  if (!lines.length) return '';
+  // No close button, by design: this is not a notice, it is the state of work
+  // that has not landed. It goes when the queue does.
+  const buttons = _queue.length
+    ? `<button class="qbtn" onclick="flushQueue(true)"${_flushing ? ' disabled' : ''}>` +
+      `${_flushing ? 'Sending…' : 'Try sending now'}</button>` +
+      `<button class="qbtn discard" onclick="discardQueue()"${_flushing ? ' disabled' : ''}>Discard</button>`
+    : `<button class="qbtn discard" onclick="clearQueueNote()">Dismiss</button>`;
+  return `<div class="banner queue" id="queueBanner">${
+    lines.map(l => `<div>${escHTML(l)}</div>`).join('')}${buttons}</div>`;
+}
+
+// Swap the banner alone. A full re-render would wipe a half-typed entry, and a
+// flush is at its most useful exactly when a card is open.
+function refreshQueueBanner() {
+  const el   = document.getElementById('queueBanner');
+  const html = queueBannerHTML();
+  if (el && html) el.outerHTML = html;
+  else if (el) el.remove();
+  else if (html) {
+    const app = document.getElementById('app');
+    if (app) app.insertAdjacentHTML('afterbegin', html);
+  }
+}
+
+function redrawAfterQueueChange() {
+  if (_openDate) refreshQueueBanner();
+  else render(allCycles);
+}
+
+// The note outlives the entries it describes, so it needs its own way out —
+// otherwise a warning about a flush that has finished would sit there forever.
+function clearQueueNote() {
+  _queueNote = null;
+  saveQueue();
+  redrawAfterQueueChange();
+}
+
+// The only way an entry leaves the queue other than a confirmed write, and it
+// takes a confirmation listing exactly what is being thrown away.
+function discardQueue() {
+  if (!_queue.length || _flushing) return;
+  const n = _queue.length;
+  const what = _queue.map(e => dayLabel(e.iso) + ' — ' + describeValues(e.values).join(', ')).join('\n');
+  if (!confirm(`Throw away ${n} unsent entr${n === 1 ? 'y' : 'ies'}?\n\n${what}\n\n` +
+               `The sheet does not have ${n === 1 ? 'it' : 'them'}, and this cannot be undone.`)) return;
+  console.warn('Unsent entries discarded by hand:', _queue);
+  _queue = [];
+  _queueNote = { at: Date.now(), text: ['Unsent entries were discarded. The sheet never received them.'] };
+  saveQueue();
+  redrawAfterQueueChange();
+}
+
+// One at a time and in date order. The endpoint serialises writes under a script
+// lock anyway, and a partial failure has to leave exactly the entries that
+// failed — which a parallel send cannot promise. Re-sending is safe: `doPost`
+// updates the row for that date rather than adding a second one.
+async function flushQueue(manual) {
+  if (_flushing || _saving || !_queue.length || _role !== 'writer') return;
+  // A flush that re-renders would wipe a half-typed entry, so the automatic one
+  // waits (the same rule the 10-minute refresh follows). Mike's own button may
+  // go ahead: nothing below re-renders while a card is open.
+  if (_openDate && !manual) return;
+
+  _flushing = true;
+  refreshQueueBanner();
+  const notes = [];
+  let sent = 0;
+  try {
+    for (const e of _queue.slice()) {
+      try {
+        const res = await postEntry(e.iso, e.values);
+        if (!res || res.ok !== true) {
+          const err = new Error(writeErrorText(res && res.error));
+          err.refusal = isRefusal(res && res.error);
+          throw err;
+        }
+        // Confirmed, so it goes — and the sheet, not this copy, is what gets
+        // read back afterwards.
+        _queue = _queue.filter(q => q.iso !== e.iso);
+        sent++;
+        // ca5a: ok:true is not the same as "stored what was sent". The row has
+        // been written and re-sending would land the same value again, so the
+        // entry still leaves the queue — but the warning must not leave with it.
+        for (const w of writeWarnings(res)) notes.push(`${dayLabel(e.iso)} saved, but ${w}`);
+      } catch (err) {
+        const text = err.name === 'TimeoutError'
+          ? 'the server did not reply within 30 seconds.' : err.message;
+        e.tries = (e.tries || 0) + 1;
+        e.lastError = text;
+        notes.push(err.refusal
+          ? `${dayLabel(e.iso)} could not be sent: ${text} It is still here, and nothing more ` +
+            'will send until that is sorted out.'
+          : `${dayLabel(e.iso)} could not be sent: ${text}`);
+        console.error('Flush failed on', e.iso, err);
+        break;   // whatever stopped this one will stop the rest; they keep their turn
+      }
+    }
+  } finally {
+    _queueNote = notes.length ? { at: Date.now(), text: notes } : null;
+    if (!saveQueue()) {
+      _queueNote = { at: Date.now(), text: notes.concat(
+        'This phone would not store the unsent list, so it will not survive a reload. ' +
+        'Send it now, or write the numbers down.') };
+    }
+    _flushing = false;
+  }
+  // Re-read rather than trust what was sent.
+  if (sent && !_openDate) loadData();
+  else redrawAfterQueueChange();
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -1116,6 +1436,7 @@ function render(cycles) {
     if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
     if (overlayChart)  { overlayChart.destroy();  overlayChart  = null; }
     document.getElementById('app').innerHTML =
+      queueBannerHTML() +
       bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + tabBarHTML() + entryScreenHTML(cycles);
     return;
   }
@@ -1369,6 +1690,7 @@ function render(cycles) {
     : `<div class="footer">Last updated ${new Date().toLocaleTimeString()} &nbsp;&middot;&nbsp; Auto-refreshes every 10 minutes</div>`;
 
   document.getElementById('app').innerHTML =
+    queueBannerHTML() +
     bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + tabBarHTML() + statsHTML + chartHTML + historyHTML + logHTML + footerHTML;
 
   drawTimelineChart(cycles);
@@ -2069,6 +2391,9 @@ function loadData(attempt) {
       // Only cache what actually rendered, so a bad payload cannot overwrite a
       // good saved copy and leave the offline path broken too.
       writeCache(resp.cols, resp.rows, resp.role);
+      // A read got through, so the signal is back: try the unsent entries. Not
+      // awaited — the dashboard is already drawn and the flush redraws itself.
+      flushQueue();
     } catch (e) {
       console.error(e);
       failLoad(e.message);
@@ -2118,8 +2443,14 @@ function bootFromCache() {
   }
 }
 
+// Before either render: the catch-up cards and the banner both read the queue,
+// and an unsent entry must be on screen from the very first paint.
+loadQueue();
 bootFromCache();
 loadData();
+// The one moment worth reacting to instantly. Everything else waits for the
+// next read; this is the flush Mike is standing there waiting for.
+window.addEventListener('online', () => { console.warn('Back online — flushing.'); flushQueue(); });
 // The refresh re-renders from scratch, which would wipe a half-typed entry.
 // A day being edited is unsaved work; the dashboard can wait ten more minutes.
 //

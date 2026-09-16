@@ -14,59 +14,19 @@
 // cached paths both use. It does not check what the dashboard looks like —
 // that is Mike's browser pass — only that every code path in it runs.
 
-const fs = require('fs');
-const path = require('path');
 const { NEW_COLS } = require('./migrate-sheet.js');
+const { bootPage } = require('./page-harness.js');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const a = src.indexOf('<script>');
-const b = src.lastIndexOf('</script>');
-if (a < 0 || b < 0 || b < a) throw new Error('Could not find the page script in index.html');
-const script = src.slice(a + '<script>'.length, b);
-
-// ── Stub browser ───────────────────────────────────────────────────────────
-// Deliberately dumb: anything the page needs that is missing here shows up as
-// the failure it would be on the phone, not as a silent no-op.
-const app = { innerHTML: '', remove() {}, getContext: () => ({}) };
-const store = () => {
-  const m = new Map();
-  return {
-    getItem: k => (m.has(k) ? m.get(k) : null),
-    setItem: (k, v) => m.set(k, String(v)),
-    removeItem: k => m.delete(k),
-  };
-};
-class ChartStub {
-  constructor() { this.data = { datasets: [] }; }
-  destroy() {} update() {}
-  getDatasetMeta() { return { hidden: false }; }
-}
-const env = {
-  document: {
-    getElementById: () => app,
-    createElement: () => ({ set src(_) {}, onerror: null }),
-    head: { appendChild() {} },
-  },
-  localStorage: store(),
-  sessionStorage: store(),
-  location: { hash: '', pathname: '/', search: '', replace() {} },
-  history: { replaceState() {} },
-  navigator: {},
-  window: {},
-  alert() {},
-  Chart: ChartStub,
-  // The page schedules a 10-minute refresh and a 20s load timeout; neither
-  // should hold this process open or fire mid-check.
-  setTimeout: () => 0,
-  setInterval: () => 0,
-  clearTimeout: () => {},
-};
-const api = new Function(...Object.keys(env),
-  `${script}\n; return { renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
-       setProvisional: v => { _provisional = v; },
-       setScreen: (tab, role) => { _tab = tab; _role = role; },
-       setOpenDate: v => { _openDate = v; }, entryFormHTML, entryDiff };`
-)(...Object.values(env));
+// The stub browser lives in page-harness.js so the queue self-check can boot the
+// same page the same way — twice over, which is how a reload is tested.
+const api = bootPage({ expose:
+  `{ renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
+     setProvisional: v => { _provisional = v; },
+     setScreen: (tab, role) => { _tab = tab; _role = role; },
+     setOpenDate: v => { _openDate = v; }, entryFormHTML, entryDiff,
+     setQueue: (entries, note) => { _queue = entries; _queueNote = note || null; },
+     queueBannerHTML }` });
+const app = api._el('app');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 // Dates are anchored to today so dayNumber is the same arithmetic the phone
@@ -218,6 +178,41 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   const back = renders(withMarker, 'dashboard after the log tab');
   has(back, 'Safe Sex Status', 'the dashboard is whole again');
   has(back, 'chartTimeline', 'the timeline canvas is back in the page');
+  api.setScreen('dashboard', null);
+
+  // ca6: the queue banner must reach BOTH exits, because the screen it matters
+  // on is the log tab and the screen Mike is usually looking at is the other.
+  console.log('\n--- THE UNSENT QUEUE BANNER (ca6) ---');
+  const unsentIso = iso(daysAgo(1));
+  api.setQueue([{ iso: unsentIso, values: { Temp: '97.80', Note: '' }, at: Date.now(), tries: 1,
+                  lastError: 'the server did not reply within 30 seconds.' }], null);
+
+  api.setScreen('log', 'writer');
+  const qlog = renders(withMarker, 'the log tab with an unsent entry');
+  has(qlog, 'banner queue', 'the queue banner is on the log screen');
+  has(qlog, 'has not reached the sheet yet', 'and says so in words');
+  has(qlog, 'flushQueue(true)', 'with a way to try again by hand');
+  // ca7's banner is dismissible; this one is not, and both can be on screen at
+  // once. Ask the queue banner alone, or the other one's cross answers for it.
+  /banner-x|dismissBanner/.test(api.queueBannerHTML())
+    ? fail('the queue banner has a dismiss cross — it must not be dismissible')
+    : pass('the queue banner has no dismiss cross');
+  has(qlog, 'not sent yet: Temp: 97.80', 'the day card flags the unsent values rather than hiding them');
+  has(qlog, 'Note: (cleared)', 'including a field the entry cleared');
+
+  api.setScreen('dashboard', 'writer');
+  const qdash = renders(withMarker, 'the dashboard with an unsent entry');
+  has(qdash, 'banner queue', 'the queue banner is on the dashboard too');
+
+  // Tirzah never sees it. She cannot write, so she can never have a queue —
+  // but the banner is state, and state renders whatever the role.
+  api.setScreen('dashboard', 'reader');
+  const qreader = renders(withMarker, 'the dashboard as the reader');
+  /banner queue/.test(qreader)
+    ? fail('the reader was shown the writer-only unsent banner')
+    : pass('the reader is never shown the unsent banner');
+
+  api.setQueue([], null);
   api.setScreen('dashboard', null);
 }
 
