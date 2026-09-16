@@ -223,6 +223,7 @@ const { bootPage, makeStore } = require('./page-harness.js');
 
 const EXPOSE = `{ renderPayload, saveEntry, flushQueue, loadData,
   getQueue: () => _queue, getNote: () => _queueNote,
+  getRole: () => _role, remember: r => rememberRole(r),
   setScreen: (tab, role) => { _tab = tab; _role = role; },
   setOpenDate: v => { _openDate = v; } }`;
 
@@ -492,17 +493,92 @@ function typeTemp(api, temp) {
     is(api.getQueue().length, 0, 'a write that got through on the retry is not queued');
   }
 
-  console.log('\na refusal is answered once — a retry loop behind it would never clear');
+  // ── ca11: the refusal that never happened ──────────────────────────
+  // Google runs doPost on the first hop and 302s to a one-time URL holding the
+  // answer. Fetching that URL twice runs doGet with no token, which answers
+  // `no-access` — a refusal for a write that is already on the sheet. Seen twice
+  // in four verify.bat runs on 2026-09-15. So a refusal is confirmed by one
+  // extra send, and only the second one counts.
+
+  // Counts the times the remembered role was actually dropped from storage, so
+  // "forgotten once" is checked rather than assumed. ca9a broke twice over this.
+  function roleStore() {
+    const st = makeStore();
+    st.forgets = 0;
+    const drop = st.removeItem;
+    st.removeItem = k => { if (k === 'cycleRole') st.forgets++; return drop(k); };
+    return st;
+  }
+
+  console.log('\na refusal is confirmed before it is believed (ca11)');
   {
-    const s8 = makeStore();
-    const refused = scriptedStub([{ ok: false, error: 'read-only' }]);
-    const api = bootRetry({ store: s8, fetch: refused });
+    const s11 = roleStore();
+    const phantom = scriptedStub([{ ok: false, error: 'no-access' },
+                                  { ok: true, action: 'inserted' }]);
+    const api = bootRetry({ store: s11, fetch: phantom });
+    api.remember('writer');
+    s11.forgets = 0;
     openLog(api); typeTemp(api, '97.90');
     await api.saveEntry(DAY_A);
-    is(refused.calls.length, 1, 'a refusal is a reply: asking again gets the same answer');
-    is(api.getQueue().length, 0, 'and it is still never queued');
+    is(phantom.calls.length, 2, 'the refusal is sent again rather than believed on sight');
+    same(phantom.calls[1], phantom.calls[0], 'and the confirming send carries the same patch');
+    is(api.getQueue().length, 0, 'the write landed on the second send, so nothing is owed');
+    is(api.getNote(), null, 'a phantom that was survived is not reported as a problem');
+    is(api.getRole(), 'writer', 'and Mike is still the writer');
+    is(s11.forgets, 0, 'the remembered role was never dropped on an unconfirmed refusal');
+    is(api._el('saveStatus').textContent.startsWith('NOT saved'), false,
+      'nothing told him the save failed');
+  }
+
+  console.log('\na real refusal still refuses — once, and it still forgets the role');
+  {
+    const s12 = roleStore();
+    const refused = scriptedStub([{ ok: false, error: 'no-access' }]);
+    const api = bootRetry({ store: s12, fetch: refused });
+    api.remember('writer');
+    s12.forgets = 0;
+    openLog(api); typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(refused.calls.length, 2,
+      'one confirming send, not a budget — a refusal behind a retry loop is a banner nothing clears');
+    is(api.getRole(), null, 'a refusal that repeated is the server proving the remembered role wrong');
+    is(s12.forgets, 1, 'and it is forgotten exactly once');
+    is(api.getQueue().length, 0, 'a confirmed refusal is still never queued');
     is(api._el('saveStatus').textContent.startsWith('NOT saved'), true,
       'a refusal WAS observed, so it may still say NOT saved');
+  }
+
+  console.log('\nthe confirming send is not a licence to retry a refusal for ever');
+  {
+    // `read-only` cannot be a phantom — doGet has no such answer — but it costs
+    // one extra send rather than a second classification of refusals. What it
+    // must never cost is a third.
+    const s13 = roleStore();
+    const refused = scriptedStub([{ ok: false, error: 'read-only' }]);
+    const api = bootRetry({ store: s13, fetch: refused });
+    openLog(api); typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(refused.calls.length, 2, 'two sends and no more, whatever the refusal says');
+    is(api.getQueue().length, 0, 'and it is still never queued');
+  }
+
+  console.log('\na refusal that cannot be confirmed is a write that may have landed');
+  {
+    // The phantom means the row may be sitting in the sheet. If the confirming
+    // send never gets an answer, nothing has been observed that proves it is not
+    // — so the entry is kept and marked unconfirmed, rather than dropped the way
+    // a refusal is.
+    const s14 = roleStore();
+    const lost = scriptedStub([{ ok: false, error: 'no-access' }, 'timeout']);
+    const api = bootRetry({ store: s14, fetch: lost });
+    api.remember('writer');
+    s14.forgets = 0;
+    openLog(api); typeTemp(api, '97.90');
+    await api.saveEntry(DAY_A);
+    is(api.getQueue().length, 1, 'the entry is kept rather than dropped on an unconfirmed refusal');
+    is(api.getQueue()[0].unknown, true, 'and marked as one that may already be on the sheet');
+    is(api.getRole(), 'writer', 'the role survives: nothing confirmed the refusal');
+    is(s14.forgets, 0, 'so nothing was forgotten');
   }
 
   console.log('\nan outage exhausts the budget, and is visible when it does');

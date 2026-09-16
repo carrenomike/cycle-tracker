@@ -128,9 +128,17 @@ async function call(url, token) {
   catch { throw new Error(`Response was not JSON: ${text.slice(0, 200)}`); }
 }
 
+// ca11: Google runs doPost on the first hop and 302s to a one-time URL holding
+// the answer; fetching that URL twice runs doGet with no token, which answers
+// no-access. So a refusal can belong to a write that already landed — it
+// happened twice in four runs of this tool on 2026-09-15. index.html's
+// postEntry() has the same rule: send once more, believe the second answer,
+// never a third. Keep the two in step.
+const REFUSALS = ['read-only', 'no-access', 'not-configured'];
+
 // The write side of the same flaky hop. Kept a "simple" request (text/plain)
 // for exactly the reason the app does it: Apps Script cannot answer a preflight.
-async function post(url, body) {
+async function post(url, body, confirming) {
   const res = await flakyFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -143,13 +151,23 @@ async function post(url, body) {
   // version from before ca5. Say that instead of "not JSON".
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const text = await res.text();
-  try { return JSON.parse(text); }
+  let reply;
+  try { reply = JSON.parse(text); }
   catch {
     throw new Error(/<html/i.test(text)
       ? 'the /exec URL answered a POST with a web page, not JSON — the live deployment ' +
         'predates doPost. Deploy > Manage deployments > edit > New version.'
       : `Response was not JSON: ${text.slice(0, 200)}`);
   }
+  // A refusal is confirmed, not believed: one more send, and the second answer
+  // is the one that counts. Said out loud, because a phantom that was survived
+  // is still Google's hop misbehaving and this tool is where that gets seen.
+  if (reply && reply.ok === false && REFUSALS.includes(reply.error) && !confirming) {
+    console.log(`  retry  "${reply.error}" from Google — sending once more to check ` +
+      'it is real: the answer link can be fetched twice, and then a landed write reads as refused');
+    return post(url, body, true);
+  }
+  return reply;
 }
 
 const pause = () => new Promise(r => setTimeout(r, 400));

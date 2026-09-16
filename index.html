@@ -1326,6 +1326,15 @@ async function postEntry(iso, values, budgetMs, onRetry) {
   // Not `budgetMs ||`: a caller asking for no room at all must get no room,
   // not the default two minutes.
   const deadline = Date.now() + (budgetMs == null ? WRITE_BUDGET_SAVE : budgetMs);
+  // ca11: a refusal is not proof either. Apps Script runs doPost on the FIRST
+  // hop and 302s to a one-time URL holding the already-computed answer; fetching
+  // that URL twice does not replay it, it runs doGet with no token — which
+  // answers `no-access`. So a write that landed can come back refused, and the
+  // app would tell Mike he has no access and forget he is the writer. A refusal
+  // is believed only when a second, fresh send refuses too. Exactly one extra
+  // send, never a budget: ca6 is explicit that a refusal behind a retry loop is
+  // a banner nothing can ever clear.
+  let refusedOnce = false;
   for (let attempt = 1; ; attempt++) {
     let reply = null, problem = null;
     try { reply = await postOnce(iso, values); }
@@ -1333,11 +1342,25 @@ async function postEntry(iso, values, budgetMs, onRetry) {
 
     if (!problem) {
       // A reply is final, refusal or not — the server answered, and asking again
-      // gets the same answer. ca9a's role check sits here, outside the retry, so
-      // no retry can re-fire forgetRole() and no short-circuit can skip it:
-      // `read-only` is the server proving a remembered "writer" wrong, and the
-      // one refusal shape the read path can never see.
-      if (reply && reply.ok !== true && isRefusal(reply.error)) forgetRole();
+      // gets the same answer. The one exception is the phantom refusal above.
+      // Everything else, `bad-request` included, came from the script's own run
+      // on the first hop and means what it says.
+      if (reply && reply.ok !== true && isRefusal(reply.error)) {
+        if (!refusedOnce) {
+          refusedOnce = true;
+          // Survived, not silent: a phantom is Google's hop misbehaving, and
+          // the next person to read the console should see it happening.
+          console.warn(`Write for ${iso} came back "${reply.error}" — sending once more to ` +
+            'check that is real: a refusal can be the answer link being fetched twice.');
+          continue;
+        }
+        // Two script runs said no, so the link really is what they say it is.
+        // ca9a's role check sits here, outside the retry, so no retry can
+        // re-fire forgetRole() and no short-circuit can skip it: `read-only` is
+        // the server proving a remembered "writer" wrong, and the one refusal
+        // shape the read path can never see.
+        forgetRole();
+      }
       return reply;
     }
 
@@ -2641,6 +2664,13 @@ function loadData(attempt) {
         // server has just said this link is not a working writer link, so a
         // remembered role from an earlier session is wrong and must go, or
         // showMessage() would draw the entry form over the refusal.
+        //
+        // ca11 deliberately did NOT give this path the write path's confirming
+        // re-send. The phantom refusal needs the answer link to be fetched a
+        // second time, and that second run of doGet has no `callback` parameter
+        // — so it answers bare JSON, which this <script> tag cannot execute at
+        // all. A phantom here times out; it cannot arrive here dressed as a
+        // refusal. If that ever changes, this is the place to copy postEntry().
         if (err === 'not-configured' || err === 'no-access') forgetRole();
         if (err === 'not-configured') {
           return showMessage('This app is not finished being set up.',
