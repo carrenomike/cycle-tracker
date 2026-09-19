@@ -23,9 +23,10 @@ const EXPOSE =
   `{ renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
      setProvisional: v => { _provisional = v; },
      setScreen: (tab, role) => { _tab = tab; _role = role; },
-     setOpenDate: v => { _openDate = v; }, entryFormHTML, entryDiff,
+     typeField, pickOption, setQuestion, saveAll, openReview, getDrafts: () => _drafts,
+     clearDrafts: () => { _drafts = new Map(); _suggested = new Set(); _logNote = null; _reviewing = false; },
      setQueue: (entries, note) => { _queue = entries; _queueNote = note || null; },
-     queueBannerHTML, failLoad, switchTab, openDay, saveEntry, rememberRole,
+     queueBannerHTML, failLoad, switchTab, rememberRole,
      sheetCallback: r => window._sheetCallback(r),
      getQueue: () => _queue, getRole: () => _role, getTab: () => _tab,
      stored: k => localStorage.getItem(k) }`;
@@ -137,58 +138,87 @@ console.log('\n--- THE LOG TABLE FOR EVERY CYCLE ---');
 console.log('\n--- THE LOG EXIT (writer only) ---');
 {
   // ca5 gave render() a second exit the dashboard half never reaches — exactly
-  // the shape of the ca4 bug: a path every self-check skipped. Render it closed,
-  // render it with a card open, then render the dashboard again; the round trip
-  // is what rebuilds the charts.
+  // the shape of the ca4 bug: a path every self-check skipped. Render it under
+  // each question, with and without changes, then render the dashboard again;
+  // the round trip is what rebuilds the charts.
   api.setScreen('log', 'writer');
-  const closed = renders(withMarker, 'the log tab');
-  has(closed, 'Log a day', 'the catch-up list is drawn');
+  // Two rows inside the 14 days on screen: one with every field filled, and one
+  // holding what a migrated row can hold that this app never offers.
+  const row = (back, vals) => NEW_COLS.map(c => c === 'Date' ? iso(daysAgo(back)) : (vals[c] || ''));
+  const FULL = { Temp: '97.8', Time: '7:05 AM', 'Temp Quality': 'off-time', Exclude: 'TRUE',
+    Flow: 'spotting', 'Cervical Mucus': 'Creamy', 'Cervix Texture': 'soft', 'Cervix Position': 'high',
+    Breasts: 'sore', Ovulation: 'TRUE', 'Cycle Start': 'TRUE', Note: 'tired' };
+  const AWKWARD = { 'Cervical Mucus': 'Lotiony', Ovulation: 'TRUE', Note: 'she said "fine" & left' };
+  const rows = [...withMarker, row(2, FULL), row(1, AWKWARD)];
+  const d0 = iso(daysAgo(0)), d1 = iso(daysAgo(1)), d2 = iso(daysAgo(2));
+  const summaryOf = (html, day) => ((html.match(new RegExp(`id="sum-${day}">([\\s\\S]*?)</span>\\s*</div>`)) || [])[1] || '');
+
+  const closed = renders(rows, 'the log tab');
+  has(closed, "setQuestion('flags')", 'the question bar is drawn');
   has(closed, 'day-card', 'there are day cards');
+  has(closed, "typeField('" + d0 + "','Temp'", 'every day gets the Temp question by default');
   has(closed, 'Show 14 more days', 'the show-more button is drawn');
   /chartTimeline|Cycle Day/.test(closed)
     ? fail('dashboard markup leaked into the log screen')
     : pass('no dashboard markup leaks into the log screen');
 
-  api.setOpenDate(iso(daysAgo(0)));
-  const open = renders(withMarker, 'the log tab with a card open');
-  has(open, 'saveEntry(', 'the entry form is drawn');
-  has(open, 'Temp (', 'the form carries the ca2 fields');
+  // Only the question being asked has controls; everything else has to be in
+  // the summary line, or a day would look blank for the fields not on screen.
+  const full = summaryOf(closed, d2);
+  const WANT = ['97.80° at 7:05 AM', 'off-time', 'excluded', 'spotting', 'mucus creamy',
+                'cervix soft, high', 'breasts sore', 'ovulation', 'day 1', 'note: tired'];
+  const missing = WANT.filter(w => !full.includes(w));
+  missing.length ? fail(`the summary line left out ${missing.join(', ')}: ${full}`)
+                 : pass('every field on a logged day is in its summary line');
+  is_(summaryOf(closed, d0), 'not logged', 'an unlogged day says so');
 
-  // A migrated row can hold a value this app never offers — an old mucus
-  // wording, a cervix note ca2 folded into the Note. Opening such a row must
-  // not rewrite it to the first option, and saving an unrelated field must not
-  // carry it along. (Target 7; the live half is Tools/verify-proxy.js.)
-  const awkward = {
-    Temp: '', Time: '', Flow: '',
-    'Cervical Mucus': 'Lotiony',
-    Ovulation: 'TRUE',
-    Note: 'cervix: high and open',
-  };
-  const form = api.entryFormHTML(iso(daysAgo(1)), awkward);
-  /<option value="Lotiony" selected>/.test(form)
-    ? pass('a mucus value the option list does not know stays selected')
-    : fail('an unknown mucus value was not preserved in the form');
-  has(form, 'cervix: high and open', 'the migrated cervix note is shown, not dropped');
+  // Target 7: an unknown sheet value is shown, selected, and not rewritten.
+  api.setQuestion('mucus');
+  const mucus = renders(rows, 'the mucus question');
+  /class="opt on"[^>]*>Lotiony \(already in the sheet\)/.test(mucus)
+    ? pass('a mucus value the option list does not know is shown, and selected')
+    : fail('an unknown mucus value was not preserved');
 
-  // ca6a: escHTML is the guard on attribute values too, and it did not escape
-  // quotes. A migrated cell holding a " would close `value="` early and put the
-  // rest of the sheet text into the markup as attributes.
-  const quoted = api.entryFormHTML(iso(daysAgo(1)),
-    { 'Cervical Mucus': 'creamy "eggwhite"', Note: 'she said "fine" & left' });
-  /value="creamy &quot;eggwhite&quot;"/.test(quoted)
-    ? pass('a quote in a sheet value stays inside the attribute')
-    : fail(`a quote in a sheet value was not escaped: ${
-        (quoted.match(/value="[^>]*eggwhite[^>]*/) || ['nothing matched'])[0]}`);
-  has(quoted, 'she said &quot;fine&quot; &amp; left', 'and quotes and ampersands survive in the note');
-  const d = api.entryDiff(awkward, { Temp: '98.10', Time: '', 'Temp Quality': [],
-    Exclude: false, Flow: '', 'Cervical Mucus': 'Lotiony', 'Cervix Texture': '',
-    'Cervix Position': '', Breasts: '', Ovulation: true, 'Cycle Start': false,
-    Note: 'cervix: high and open' });
-  JSON.stringify(Object.keys(d)) === JSON.stringify(['Temp'])
-    ? pass('saving a temp on that row sends the temp and nothing else')
-    : fail(`the diff carried more than the temp: ${JSON.stringify(d)}`);
+  // A draft survives moving between questions, and only what was touched goes.
+  api.setQuestion('temp');
+  api.typeField(d1, 'Temp', '98.1');
+  api.setQuestion('flow');
+  const after = app.innerHTML;
+  JSON.stringify([...api.getDrafts().keys()]) === JSON.stringify([d1])
+    ? pass('switching question keeps the typed temp') : fail('switching question lost the draft');
+  has(summaryOf(after, d1), '<b class="chg">98.10°</b>', 'and the summary shows it as a change');
+  has(after, '1 day changed', 'the save bar counts it');
+  api.openReview();
+  const review = api._el('saveBar').innerHTML;
+  has(review, 'Temp: 98.1', 'the review list shows the temp as typed');
+  /Lotiony|Ovulation|Note/.test(review)
+    ? fail(`the review carried an untouched field: ${review}`)
+    : pass('and nothing untouched on that row rides along');
 
-  api.setOpenDate(null);
+  // ca6a: quotes inside an attribute value and inside a textarea.
+  api.clearDrafts();
+  api.typeField(d0, 'Temp', '9"8');
+  api.setQuestion('temp');
+  has(renders(rows, 'a typed quote'), 'value="9&quot;8"', 'a quote in a value stays inside the attribute');
+  api.setQuestion('note');
+  has(renders(rows, 'the note question'), 'she said &quot;fine&quot; &amp; left',
+      'and quotes and ampersands survive in the note box');
+
+  // A suggested Day 1 must say so everywhere Mike reads before it is saved.
+  api.clearDrafts();
+  api.setQuestion('flow');
+  api.pickOption(d0, 'Flow', 2);   // bleeding, after days with none
+  const sug = app.innerHTML;
+  has(summaryOf(sug, d0), 'day 1 (suggested)', 'bleeding after a clear stretch suggests Day 1, marked as such');
+  api.openReview();
+  has(api._el('saveBar').innerHTML, 'Cycle Start: TRUE — day 1 (suggested)', 'and the review list says so too');
+  api.clearDrafts();
+
+  // Tirzah never gets any of it, whatever _tab says.
+  api.setScreen('log', 'reader');
+  const rd = renders(rows, 'the log tab as the reader');
+  /setQuestion|typeField|save-bar/.test(rd)
+    ? fail('the reader was shown the Log screen') : pass('the reader gets no Log screen');
 
   // Back to the dashboard: the charts the log exit destroyed have to come back.
   api.setScreen('dashboard', 'writer');
@@ -295,17 +325,16 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     has(app.innerHTML, "switchTab('log')", 'and still offers the Log tab');
 
     again.switchTab('log');
-    has(app.innerHTML, 'Log a day', 'the Log tab opens with no cycle data at all');
+    has(app.innerHTML, 'setQuestion(', 'the Log tab opens with no cycle data at all');
     has(app.innerHTML, 'not logged', 'every day in the catch-up list is unlogged, which is true');
     /&middot; Day \d/.test(app.innerHTML)
       ? fail('a cycle day was printed with no cycle data to derive it from')
       : pass('no day number is invented');
 
     const today = iso(new Date());
-    again.openDay(today);
-    has(app.innerHTML, 'saveEntry', 'a day opens into the full entry form');
-    again._el('f0').value = '97.90';
-    await again.saveEntry(today);
+    has(app.innerHTML, "typeField('" + today + "','Temp'", 'and every day can take a temp');
+    again.typeField(today, 'Temp', '97.90');
+    await again.saveAll();
     const q = again.getQueue();
     q.length === 1 && q[0].iso === today && q[0].values.Temp === '97.90'
       ? pass('the entry is kept in the unsent queue, not lost')
@@ -320,7 +349,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     rstore.removeItem('cycleCache');
     const reader = bootPage({ store: rstore, expose: EXPOSE });
     reader.failLoad('offline');
-    /switchTab|Log a day/.test(reader._el('app').innerHTML)
+    /switchTab|setQuestion/.test(reader._el('app').innerHTML)
       ? fail('the reader was offered the Log tab on the offline screen')
       : pass('the reader gets no tab bar and no entry form');
   }
@@ -353,7 +382,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     b.switchTab('log');
     b.sheetCallback({ ok: false, error: 'no-access' });
     has(b._el('app').innerHTML, 'This link is not valid any more.', 'the refusal is what is on screen');
-    /Log a day/.test(b._el('app').innerHTML)
+    /setQuestion/.test(b._el('app').innerHTML)
       ? fail('the entry form was drawn over a rejected link')
       : pass('the entry form is not drawn over a rejected link');
     is_(b.getRole(), null, 'and the remembered writer role is forgotten');
@@ -413,9 +442,8 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     is_(b.getRole(), 'writer', 'it starts out remembering the writer role');
     b.switchTab('log');
     const today = iso(new Date());
-    b.openDay(today);
-    b._el('f0').value = '97.90';
-    await b.saveEntry(today);
+    b.typeField(today, 'Temp', '97.90');
+    await b.saveAll();
     is_(b.getQueue().length, 0, 'a refusal is never queued');
     is_(b.getRole(), null, 'and the remembered writer role is forgotten');
     is_(b.getTab(), 'dashboard', 'the Log tab is left');

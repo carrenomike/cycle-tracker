@@ -98,6 +98,7 @@ Writer-only surfaces — the Log tab, the unsent-queue banner — are unconstrai
 | 10 | `slice-ca10-write-retry.md` | Retry the flaky Apps Script redirect hop; stop the queue claiming a write did not land when it did. **Runs before 8** | 5, 6 |
 | 11 | `slice-ca11-phantom-refusal.md` | A refused write that actually succeeded: confirm a refusal before believing it. **Runs before 8** | 10, 9a, 6 |
 | 8 | `slice-ca8-review.md` | Code review of the whole plan's committed diff | all, incl. 9, 10 and 11 |
+| 12 | `slice-ca12-log-by-question.md` | Log tab rebuilt: answer one question across many days, one save for all changed days | 5, 6, 10, 11 |
 
 Run in index order unless a "Depends on" column says otherwise. Slice 7 only needs the read path from slice 3, so
 it can be pulled forward if a stale-cache problem shows up sooner. The review slice is always last and always runs

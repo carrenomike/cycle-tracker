@@ -18,7 +18,7 @@ if (a < 0 || b < 0) throw new Error('Could not find the ENTRY markers in index.h
 const E = new Function(
   `${src.slice(a, b)}; return { QUALITY_OPTS, ENTRY_FIELDS, isoOf, isoShift, toSheetTime, fromSheetTime,
      sheetValue, sameTemp, entryDiff, entryProblem, CYCLE_START_LOOKBACK, suggestCycleStart,
-     confirmText, writeErrorText };`)();
+     describeValues, writeErrorText, QUESTIONS, rowForm, draftChanges };`)();
 
 let failed = 0;
 const pass = m => console.log(`  ok    ${m}`);
@@ -155,12 +155,37 @@ console.log('\nsuggestCycleStart — suggested, never set');
   ? fail('something in the suggestion path touches Ovulation')
   : pass('no suggestion path touches the ovulation marker');
 
-console.log('\nthe confirmation says what is about to be written (ca4)');
+console.log('\nthe review list says what is about to be written (ca4)');
 {
-  const t = E.confirmText('Mon, Sep 14', { Temp: '97.88', Flow: 'bleeding', Exclude: '' });
+  const t = E.describeValues({ Temp: '97.88', Flow: 'bleeding', Exclude: '' }).join('\n');
   is(/97\.88/.test(t) && /bleeding/.test(t), true, 'it lists the values, not a count');
   is(/Exclude: \(cleared\)/.test(t), true, 'a cleared field says so rather than showing blank');
-  is(/Mon, Sep 14/.test(t), true, 'it names the day being written to');
+}
+
+console.log('\none question at a time (ca12)');
+{
+  const asked = E.QUESTIONS.flatMap(q => q.cols);
+  same(asked.slice().sort(), E.ENTRY_FIELDS.map(f => f.col).sort(),
+    'every field is asked by exactly one question — none missing, none twice');
+  same(E.QUESTIONS.map(q => q.label), ['Temp', 'Flow', 'Mucus', 'Cervix', 'Breasts', 'Flags', 'Note'],
+    'the question buttons, in order');
+  same(E.QUESTIONS.find(q => q.key === 'flags').cols, ['Ovulation', 'Cycle Start'],
+    'Flags is Ovulation and Cycle start only');
+
+  // A draft holds only what Mike touched, and is diffed against the row as it
+  // is at save time.
+  const row = { Temp: '97.80', Time: '7:05am', 'Temp Quality': 'Off-time', Flow: '', Note: 'cervix: firm' };
+  same(E.draftChanges(row, { Flow: 'bleeding' }), { Flow: 'bleeding' },
+    'touching one field sends that field only — a sheet spelling the form cannot round-trip is left alone');
+  same(E.draftChanges(row, { Temp: '97.8' }), {}, 'typing the same reading back is not a change');
+  same(E.draftChanges({ Temp: '97.90' }, { Flow: 'spotting' }), { Flow: 'spotting' },
+    'a re-read that lands under a draft is not reverted by it');
+  same(E.draftChanges(null, { Note: 'x' }), { Note: 'x' }, 'a day with no row yet');
+  same(E.draftChanges(row, undefined), {}, 'no draft, no changes');
+  is(E.rowForm({ Exclude: 'TRUE' }).Exclude, true, 'a sheet flag reads back as ticked');
+  same(E.rowForm({ 'Temp Quality': 'off-time, disturbed' })['Temp Quality'], ['off-time', 'disturbed'],
+    'both quality marks read back');
+  is(E.rowForm({ Time: '7:05 AM' }).Time, '07:05', "the time reads back in the box's spelling");
 }
 
 console.log('\nwrite errors are spoken out loud, never swallowed');
@@ -170,7 +195,7 @@ is(E.writeErrorText(undefined).length > 0, true, 'even an empty reply produces a
 
 console.log('\nthe app itself');
 // The token in the address bar is the only copy when storage refuses it (ca7a).
-src.slice(src.indexOf('function postEntry'), src.indexOf('async function saveEntry')).includes('localStorage')
+src.slice(src.indexOf('function postEntry'), src.indexOf('let _queue ')).includes('localStorage')
   ? fail('the write path reads the token from storage instead of TOKEN')
   : pass('the write path uses TOKEN, so an address-bar-only token can still save');
 /Content-Type': 'text\/plain/.test(src)
@@ -178,7 +203,7 @@ src.slice(src.indexOf('function postEntry'), src.indexOf('async function saveEnt
   : fail('the POST content type would trigger a CORS preflight');
 // No optimistic UI: the only thing that updates the screen after a write is a
 // fresh read of the sheet.
-/setSaveStatus\('Saved[\s\S]{0,60}loadData\(\)/.test(src)
+/if \(saved\.length\) loadData\(\)/.test(src)
   ? pass('a successful write re-reads the sheet rather than patching the screen')
   : fail('the screen is updated without re-reading the sheet');
 /_role !== 'writer'\) return ''/.test(src)

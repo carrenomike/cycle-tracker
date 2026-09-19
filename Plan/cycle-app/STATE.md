@@ -2,7 +2,7 @@
 
 **Hard cap: 60 lines. One line per item.** Forensic detail goes to `Docs/Archive/Cycle App Log.md`, never here.
 **On "Wrap up", run `README.md`'s "End every session with" checklist.** STATE.md is always loaded at session start, the README isn't — this line is the only way a session learns what "wrap up" means.
-**Last reviewed commit:** HEAD (reviewed by ca8, the whole plan `1065c1e...HEAD`). Nothing unreviewed. **The plan is finished** — ca8 was the final review slice and there is no ca12.
+**Last reviewed commit:** HEAD (reviewed by ca8, the whole plan `1065c1e...HEAD`). Nothing unreviewed. ca8 closed the original plan. **Next: ca12** (Log tab rebuilt to log by question across days, grilled 2026-09-19), then its ca12a review.
 ## Done
 - **ca1** — 4 defects fixed in `index.html` + `deploy.bat`, headless 2026-08-26, live 2026-09-13.
 - **ca2 + ca2a** — `Tools/migrate-sheet.js` (sheet ID is a CLI arg). 177 rows → 165, no Temp invented. `Time` was silently dropped, then recovered from Mike's xlsx export (88 values, the only loss); the script now carries it and refuses unmapped columns.

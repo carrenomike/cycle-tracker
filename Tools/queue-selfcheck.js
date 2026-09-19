@@ -221,11 +221,12 @@ same(E.describeValues({ Temp: '97.80', Note: '' }), ['Temp: 97.80', 'Note: (clea
 const { NEW_COLS } = require('./migrate-sheet.js');
 const { bootPage, makeStore } = require('./page-harness.js');
 
-const EXPOSE = `{ renderPayload, saveEntry, flushQueue, loadData,
+const EXPOSE = `{ renderPayload, saveAll, typeField, flushQueue, loadData, dayLabel,
   getQueue: () => _queue, getNote: () => _queueNote,
   getRole: () => _role, remember: r => rememberRole(r),
   setScreen: (tab, role) => { _tab = tab; _role = role; },
-  setOpenDate: v => { _openDate = v; } }`;
+  logNote: () => (_logNote && _logNote.text) || '', drafts: () => [..._drafts.keys()],
+  clearDrafts: () => { _drafts = new Map(); _suggested = new Set(); } }`;
 
 const isoOfDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
@@ -260,11 +261,6 @@ function openLog(api) {
   api.renderPayload(NEW_COLS, FIXTURE);
 }
 
-// Fill the form as if Mike typed one temperature and nothing else.
-function typeTemp(api, temp) {
-  const tempField = api._el('f0');   // ENTRY_FIELDS[0] is Temp
-  tempField.value = String(temp);
-}
 
 (async () => {
   console.log('\nan entry queued while offline survives a reload');
@@ -273,8 +269,8 @@ function typeTemp(api, temp) {
   {
     const api = bootPage({ store, fetch: offline, expose: EXPOSE });
     openLog(api);
-    typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(api.getQueue().length, 1, 'a write that could not go out is kept, not lost');
     same(api.getQueue()[0].values, { Temp: '97.90' }, 'with exactly the fields that were changed');
     is(api.getQueue()[0].lastError, 'Failed to fetch', 'and why it did not go');
@@ -294,7 +290,6 @@ function typeTemp(api, temp) {
     const online = fetchStub(() => ({ ok: true, action: 'inserted' }));
     const api = bootPage({ store, fetch: online, expose: EXPOSE });
     openLog(api);
-    api.setOpenDate(null);
     await api.flushQueue(true);
     same(online.calls, [{ t: '', date: DAY_A, values: { Temp: '97.90' } }],
       'the queued patch is what was sent, unchanged');
@@ -314,14 +309,13 @@ function typeTemp(api, temp) {
     const dead = fetchStub(() => new Error('Failed to fetch'));
     const api = bootPage({ store: s2, fetch: dead, expose: EXPOSE });
     openLog(api);
-    typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
-    openLog(api); api.setOpenDate(null);
-    typeTemp(api, '97.95'); await api.saveEntry(DAY_B);
+    api.typeField(DAY_A, 'Temp', '97.90'); await api.saveAll();
+    openLog(api);
+    api.typeField(DAY_B, 'Temp', '97.95'); await api.saveAll();
     is(api.getQueue().length, 2, 'two days queued');
 
     const api2 = bootPage({ store: s2, fetch: half, expose: EXPOSE });
     openLog(api2);
-    api2.setOpenDate(null);
     await api2.flushQueue(true);
     same(api2.getQueue().map(e => e.iso), [DAY_B], 'the one that landed is gone, the one that did not is still here');
     has(api2.getNote().text, 'could not be sent', 'and the failure is on screen, not only in the console');
@@ -335,10 +329,10 @@ function typeTemp(api, temp) {
     const refused = fetchStub(() => ({ ok: false, error: 'read-only' }));
     const api = bootPage({ store: s3, fetch: refused, expose: EXPOSE });
     openLog(api);
-    typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(api.getQueue().length, 0, 'a read-only link does not fill the queue with writes it can never send');
-    is(api._el('saveStatus').textContent.startsWith('NOT saved'), true,
+    is(api.logNote().startsWith('NOT saved'), true,
       'it says NOT saved, in the same words ca5 used');
   }
 
@@ -347,11 +341,11 @@ function typeTemp(api, temp) {
     const s4 = makeStore();
     const dead = fetchStub(() => new Error('Failed to fetch'));
     const api = bootPage({ store: s4, fetch: dead, expose: EXPOSE });
-    openLog(api); typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90'); await api.saveAll();
 
     const odd = fetchStub(() => ({ ok: true, action: 'inserted', textNotStored: ['Note'] }));
     const api2 = bootPage({ store: s4, fetch: odd, expose: EXPOSE });
-    openLog(api2); api2.setOpenDate(null);
+    openLog(api2);
     await api2.flushQueue(true);
     is(api2.getQueue().length, 0, 'the row was written, so the entry goes');
     has(api2.getNote().text, 'formula', 'but the warning it came back with does not go with it');
@@ -361,19 +355,19 @@ function typeTemp(api, temp) {
 
   console.log('\nsaving while a flush is in flight (ca6a)');
   {
-    // The banner's "Try sending now" is allowed to run with a card open, so the
-    // form's Save button is live while a flush is in flight. Before ca6a, saving
+    // The banner's "Try sending now" is allowed to run with changes on screen, so
+    // the Save button is live while a flush is in flight. Before ca6a, saving
     // into that window merged the new fields into the entry the flush was already
     // sending — and the flush's own filter then dropped the merged entry whole.
     const s5 = makeStore();
     const dead = fetchStub(() => new Error('Failed to fetch'));
     const api = bootPage({ store: s5, fetch: dead, expose: EXPOSE });
-    openLog(api); typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90'); await api.saveAll();
     is(api.getQueue().length, 1, 'one day queued to flush');
 
     // A stub that holds the flush's reply open and refuses everything after it,
     // so the save really does land mid-flush and really does fail — which is the
-    // only shape in which the old code lost the edit: saveEntry merged 97.99 into
+    // only shape in which the old code lost the edit: the save merged 97.99 into
     // the entry the flush was sending, and the flush then dropped it whole on the
     // ok:true it was waiting for.
     const sent = [];
@@ -387,13 +381,12 @@ function typeTemp(api, temp) {
     };
     const api2 = bootPage({ store: s5, fetch: slow, expose: EXPOSE });
     openLog(api2);
-    api2.setOpenDate(DAY_A);            // a card is open: this is the manual flush
+    api2.typeField(DAY_A, 'Temp', '97.99');   // changes on screen: this is the manual flush
     const flushing = api2.flushQueue(true);
     await Promise.resolve();            // let the flush reach its await
 
-    typeTemp(api2, '97.99');
-    await api2.saveEntry(DAY_A);        // returns at the guard; unguarded it posts
-    is(api2._el('saveStatus').textContent.startsWith('Still sending'), true,
+    await api2.saveAll();               // returns at the guard; unguarded it posts
+    is(api2.logNote().startsWith('Still sending'), true,
       'a save during a flush is refused, in words, rather than racing it');
     is(sent.length, 1, 'and it never reached the network behind the flush');
 
@@ -402,9 +395,9 @@ function typeTemp(api, temp) {
     same(sent.map(c => c.values), [{ Temp: '97.90' }],
       'the flush sent the value it started with, once');
     is(api2.getQueue().length, 0, 'and the confirmed entry left the queue');
-    // Nothing re-read the sheet: the form is still open over a stale list.
+    // Nothing re-read the sheet: the changes are still on screen over a stale list.
     has(api2.getNote().text, 'not been re-read',
-      'a flush that landed behind an open form says the list is older than the write');
+      'a flush that landed behind unsaved changes says the list is older than the write');
   }
 
 
@@ -455,12 +448,12 @@ function typeTemp(api, temp) {
     const s6 = makeStore();
     const dead = fetchStub(() => new Error('Failed to fetch'));
     const api = bootRetry({ store: s6, fetch: dead });
-    openLog(api); typeTemp(api, '97.90'); await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90'); await api.saveAll();
     is(api.getQueue().length, 1, 'one day waiting to be sent');
 
     const flaky = scriptedStub([404, { ok: true, action: 'inserted' }]);
     const api2 = bootRetry({ store: s6, fetch: flaky });
-    openLog(api2); api2.setOpenDate(null);
+    openLog(api2);
     await api2.flushQueue(true);
     is(flaky.calls.length, 2, 'the 404 from Google is tried again rather than believed');
     same(flaky.calls[1], flaky.calls[0], 'and the retry sends exactly the same patch');
@@ -476,16 +469,16 @@ function typeTemp(api, temp) {
     const flaky = scriptedStub([500, { ok: true, action: 'inserted' }]);
     const api = bootRetry({ store: s7, fetch: flaky });
     openLog(api);
-    // The page overwrites #saveStatus as it goes, so keep every line it wrote:
+    // The page overwrites the save bar as it goes, so keep every line it wrote:
     // "Saving…" followed two seconds later by "Saved" tells nobody a retry
     // happened, and a silent spinner is the failure this project keeps paying for.
     const seen = [];
-    const el = api._el('saveStatus');
-    Object.defineProperty(el, 'textContent', {
+    const el = api._el('saveBar');
+    Object.defineProperty(el, 'innerHTML', {
       set(v) { seen.push(v); this._v = v; }, get() { return this._v || ''; },
     });
-    typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(flaky.calls.length, 2, 'the save itself retried');
     has(seen, 'trying again', 'and the spinner said why it was still going');
     is(api.getQueue().length, 0, 'a write that got through on the retry is not queued');
@@ -516,15 +509,15 @@ function typeTemp(api, temp) {
     const api = bootRetry({ store: s11, fetch: phantom });
     api.remember('writer');
     s11.forgets = 0;
-    openLog(api); typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(phantom.calls.length, 2, 'the refusal is sent again rather than believed on sight');
     same(phantom.calls[1], phantom.calls[0], 'and the confirming send carries the same patch');
     is(api.getQueue().length, 0, 'the write landed on the second send, so nothing is owed');
     is(api.getNote(), null, 'a phantom that was survived is not reported as a problem');
     is(api.getRole(), 'writer', 'and Mike is still the writer');
     is(s11.forgets, 0, 'the remembered role was never dropped on an unconfirmed refusal');
-    is(api._el('saveStatus').textContent.startsWith('NOT saved'), false,
+    is(api.logNote().startsWith('NOT saved'), false,
       'nothing told him the save failed');
   }
 
@@ -535,14 +528,14 @@ function typeTemp(api, temp) {
     const api = bootRetry({ store: s12, fetch: refused });
     api.remember('writer');
     s12.forgets = 0;
-    openLog(api); typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(refused.calls.length, 2,
       'one confirming send, not a budget — a refusal behind a retry loop is a banner nothing clears');
     is(api.getRole(), null, 'a refusal that repeated is the server proving the remembered role wrong');
     is(s12.forgets, 1, 'and it is forgotten exactly once');
     is(api.getQueue().length, 0, 'a confirmed refusal is still never queued');
-    is(api._el('saveStatus').textContent.startsWith('NOT saved'), true,
+    is(api.logNote().startsWith('NOT saved'), true,
       'a refusal WAS observed, so it may still say NOT saved');
   }
 
@@ -554,8 +547,8 @@ function typeTemp(api, temp) {
     const s13 = roleStore();
     const refused = scriptedStub([{ ok: false, error: 'read-only' }]);
     const api = bootRetry({ store: s13, fetch: refused });
-    openLog(api); typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(refused.calls.length, 2, 'two sends and no more, whatever the refusal says');
     is(api.getQueue().length, 0, 'and it is still never queued');
   }
@@ -571,8 +564,8 @@ function typeTemp(api, temp) {
     const api = bootRetry({ store: s14, fetch: lost });
     api.remember('writer');
     s14.forgets = 0;
-    openLog(api); typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(api.getQueue().length, 1, 'the entry is kept rather than dropped on an unconfirmed refusal');
     is(api.getQueue()[0].unknown, true, 'and marked as one that may already be on the sheet');
     is(api.getRole(), 'writer', 'the role survives: nothing confirmed the refusal');
@@ -584,8 +577,8 @@ function typeTemp(api, temp) {
     const s9 = makeStore();
     const outage = scriptedStub([500]);
     const api = bootRetry({ store: s9, fetch: outage });
-    openLog(api); typeTemp(api, '97.90');
-    await api.saveEntry(DAY_A);
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
     is(outage.calls.length, E.RETRY_ATTEMPTS,
       'it stops at the shared attempt count — a retry with no end hides a real outage');
     is(api.getQueue().length, 1, 'the entry stays, because nothing confirmed it');
@@ -619,6 +612,105 @@ function typeTemp(api, temp) {
     try { await api2.postEntry(DAY_A, { Temp: '99' }, 200000); } catch (e) { /* expected */ }
     is(slow2.calls.length, E.RETRY_ATTEMPTS,
       'with room, a timeout IS retried — re-sending a date doPost already has rewrites it, never doubles it');
+  }
+
+  // ── ca12: many days, one save ──────────────────────────────────────────────
+  // A window whose load callback is watched, so "re-read once" is counted rather
+  // than assumed: every loadData() hangs a fresh one-argument callback on it.
+  function watchedWindow() {
+    const w = { reads: 0, on: {}, addEventListener(t, fn) { this.on[t] = fn; } };
+    let cb;
+    Object.defineProperty(w, '_sheetCallback', {
+      get: () => cb, set(v) { if (v && v.length) w.reads++; cb = v; } });
+    return w;
+  }
+  const TODAY = isoOfDate(daysAgo(0));
+  const tokenStore = () => { const st = makeStore(); st.setItem('cycleToken', 'writer-token'); return st; };
+
+  console.log('\nthree days in one save: one lands, one is kept, one is refused (ca12)');
+  {
+    const win = watchedWindow();
+    const mixed = fetchStub(b => b.date === DAY_A ? { ok: true, action: 'inserted' }
+                               : b.date === DAY_B ? new Error('Failed to fetch')
+                               : { ok: false, error: 'read-only' });
+    const api = bootRetry({ store: tokenStore(), fetch: mixed, env: { window: win } });
+    openLog(api);
+    api.typeField(TODAY, 'Temp', '97.95');
+    api.typeField(DAY_A, 'Temp', '97.90');
+    api.typeField(DAY_B, 'Temp', '97.92');
+    win.reads = 0;
+    await api.saveAll();
+    same(mixed.calls.map(c => c.date).slice(0, 2), [DAY_A, DAY_B], 'sent oldest first, one day at a time');
+    same(api.getQueue().map(e => e.iso), [DAY_B], 'the one that could not go out is kept');
+    const note = api.logNote();
+    has([note], 'Saved 1 day.', 'the note says what landed');
+    has([note], api.dayLabel(DAY_B) + ' not sent — kept to send later.', 'names the day that was kept');
+    has([note], 'NOT saved', 'and says the refusal in words');
+    has([note], api.dayLabel(TODAY) + ' did not go.', 'naming the day it stopped at');
+    same(api.drafts(), [TODAY], 'only the refused day is still a change on screen');
+    is(win.reads, 1, 'and the sheet is re-read once, after all of it');
+  }
+
+  console.log('\na bad temperature stops the whole save, and names the day (ca12)');
+  {
+    const none = fetchStub(() => ({ ok: true, action: 'inserted' }));
+    const api = bootRetry({ store: makeStore(), fetch: none });
+    openLog(api);
+    api.typeField(DAY_A, 'Temp', '9.79');
+    api.typeField(DAY_B, 'Temp', '97.90');
+    await api.saveAll();
+    is(none.calls.length, 0, 'nothing is sent while any day is wrong');
+    has([api.logNote()], 'Fix ' + api.dayLabel(DAY_A) + ' first', 'the note names the day to fix');
+    has([api.logNote()], '"9.79" is not a temperature', 'and what is wrong with it');
+    same(api.drafts(), [DAY_A, DAY_B], 'and every change is still there');
+  }
+
+  console.log('\nunsaved changes hold the refresh and the automatic send (ca12)');
+  {
+    const st = tokenStore();
+    const dead = fetchStub(() => new Error('Failed to fetch'));
+    const first = bootRetry({ store: st, fetch: dead });
+    openLog(first); first.typeField(DAY_A, 'Temp', '97.90'); await first.saveAll();
+    is(first.getQueue().length, 1, 'one day waiting to be sent');
+
+    const win = watchedWindow();
+    let tick = null;
+    const net = fetchStub(() => ({ ok: true, action: 'inserted' }));
+    const api = bootRetry({ store: st, fetch: net,
+      env: { window: win, setInterval: fn => { if (fn.name === 'refreshTick') tick = fn; return 0; } } });
+    is(typeof tick, 'function', 'the 10-minute refresh was found');
+    openLog(api);
+    api.typeField(DAY_B, 'Temp', '97.92');
+    win.reads = 0;
+    await api.flushQueue(false);
+    win.on.online();
+    await Promise.resolve();
+    is(net.calls.length, 0, 'neither the automatic send nor coming back online sends under unsaved changes');
+    tick(); tick();
+    is(win.reads, 0, 'the refresh passes over them');
+    is(api.logNote(), '', 'quietly, at first');
+    tick();
+    has([api.logNote()], 'has refreshed for 30 minutes', 'but after half an hour the save bar says so');
+    api.clearDrafts();
+    tick();
+    is(win.reads, 1, 'with the changes gone, the next refresh runs');
+  }
+
+  console.log('\nclosing the app with unsaved changes asks first — the writer only (ca12)');
+  {
+    const win = watchedWindow();
+    const api = bootRetry({ store: makeStore(), fetch: fetchStub(() => ({ ok: true })), env: { window: win } });
+    const leave = () => {
+      const e = { prevented: false, preventDefault() { this.prevented = true; } };
+      win.on.beforeunload(e);
+      return e.prevented;
+    };
+    openLog(api);
+    is(leave(), false, 'no changes, no question');
+    api.typeField(DAY_A, 'Temp', '97.90');
+    is(leave(), true, 'changes on screen: the browser asks before closing');
+    api.setScreen('dashboard', 'reader');
+    is(leave(), false, 'never for the reader');
   }
 
   finished = true;
