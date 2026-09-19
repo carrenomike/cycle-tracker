@@ -289,12 +289,12 @@ tfoot td {
 .tab.on { background: #7b1fa2; border-color: #7b1fa2; color: white; }
 
 /* ── Log: one question across many days (ca12) ──────────────── */
-.qbar {
+.log-top {
   position: sticky; top: 0; z-index: 2;
-  display: flex; flex-wrap: wrap; gap: 6px;
   margin: 0 -4px 12px; padding: 8px 4px;
   background: white;
 }
+.qbar { display: flex; flex-wrap: wrap; gap: 6px; }
 .q {
   flex: 1 1 auto;
   min-height: 40px;
@@ -353,13 +353,13 @@ tfoot td {
 .opt.on.chg { background: #7b1fa2; color: white; }
 .opt:disabled, .fld input:disabled, .fld textarea:disabled { opacity: 0.55; }
 .save-bar {
-  position: sticky; bottom: 0; z-index: 2;
-  margin: 12px -4px 0; padding: 10px 12px;
+  margin-top: 8px; padding: 10px 12px;
   background: white;
   border: 1px solid #b39ddb;
   border-radius: 12px;
-  box-shadow: 0 -2px 12px rgba(74,20,140,0.12);
+  box-shadow: 0 2px 12px rgba(74,20,140,0.12);
 }
+.bar-btn:disabled { opacity: 0.45; }
 .save-bar:empty { display: none; }
 .bar-row { display: flex; align-items: center; gap: 8px; }
 .bar-count { flex: 1; font-weight: 600; color: #4a148c; font-size: 0.9rem; }
@@ -1313,12 +1313,14 @@ function entryScreenHTML(cycles) {
 
   return `<div class="section">
     <h2>Log</h2>
-    <div class="qbar">${QUESTIONS.map(q =>
-      `<button class="q${q.key === _question ? ' on' : ''}" onclick="setQuestion('${q.key}')">${q.label}</button>`
-    ).join('')}</div>
+    <div class="log-top">
+      <div class="qbar">${QUESTIONS.map(q =>
+        `<button class="q${q.key === _question ? ' on' : ''}" onclick="setQuestion('${q.key}')">${q.label}</button>`
+      ).join('')}</div>
+      <div class="save-bar" id="saveBar">${saveBarInner()}</div>
+    </div>
     <div>${cards.join('')}</div>
     <button class="more-btn" onclick="showMoreDays()">Show 14 more days</button>
-    <div class="save-bar" id="saveBar">${saveBarInner()}</div>
   </div>`;
 }
 
@@ -1337,7 +1339,9 @@ function saveBarInner() {
   if (_saving) return note;
   const days = changedDays();
   const n = days.length, s = n === 1 ? '' : 's';
-  if (!n) return note;
+  // Always on screen, so the way to save is never something to go looking for.
+  if (!n) return note + `<div class="bar-row"><span class="bar-count">No changes yet</span>
+    <button class="bar-btn go" disabled>Review and save</button></div>`;
   if (_reviewing) {
     const list = days.map(d => `<div class="rv-day"><b>${escHTML(dayLabel(d.iso))}</b>${
       describeValues(d.values).map(l => `<div>${escHTML(l)}${
