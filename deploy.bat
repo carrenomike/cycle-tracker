@@ -29,12 +29,12 @@ if errorlevel 1 (
     echo "%SLICE%" is not a slice code like ca12 or ca9a.
     goto fail
 )
-git commit -m "%SLICE%: deploy"
+git -c gc.auto=0 commit -m "%SLICE%: deploy"
 if errorlevel 1 goto fail
 goto push
 
 :offplan
-git commit -m "Update dashboard"
+git -c gc.auto=0 commit -m "Update dashboard"
 if errorlevel 1 goto fail
 goto push
 
