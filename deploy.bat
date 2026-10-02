@@ -13,9 +13,27 @@ git diff --cached --quiet
 if not errorlevel 1 goto nofiles
 
 echo Deploying these files:
-git diff --cached --name-status
+git --no-pager diff --cached --name-status
 echo.
 
+REM A slice code in the subject ("ca12: deploy") tells the off-plan review
+REM counter this is plan work its checkpoint covers. Blank = off-plan, counted.
+set "SLICE="
+set "LASTSLICE="
+for /f "tokens=1 delims=: " %%a in ('git log -1 -E "--grep=^[a-z]+[0-9]+[a-z]?( [a-z-]+)?:" --format^=%%s') do set "LASTSLICE=%%a"
+if defined LASTSLICE echo Last plan commit was %LASTSLICE%.
+set /p "SLICE=Slice code for this deploy (e.g. ca12), or Enter if not plan work: "
+if not defined SLICE goto offplan
+echo %SLICE%| findstr /r /x "[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz]*[0123456789][0123456789]*[abcdefghijklmnopqrstuvwxyz]*" >nul
+if errorlevel 1 (
+    echo "%SLICE%" is not a slice code like ca12 or ca9a.
+    goto fail
+)
+git commit -m "%SLICE%: deploy"
+if errorlevel 1 goto fail
+goto push
+
+:offplan
 git commit -m "Update dashboard"
 if errorlevel 1 goto fail
 goto push
