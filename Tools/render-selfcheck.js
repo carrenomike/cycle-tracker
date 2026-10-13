@@ -294,7 +294,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
       pass('the dashboard renders with no charting library');
     } catch (e) { fail(`Chart.js missing threw the whole render: ${e.message}`); }
     has(el.innerHTML, 'Safe Sex Status', 'and the safety card — the part that matters — is on it');
-    const wrap = noChart._el('chartTimeline').parentNode.innerHTML;
+    const wrap = noChart._el('chartTimeline').closest('.chart-wrap').innerHTML;
     /need an internet connection/.test(wrap)
       ? pass('the empty chart says why it is empty')
       : fail(`the missing chart said nothing: ${JSON.stringify(wrap)}`);
