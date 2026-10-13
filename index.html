@@ -166,6 +166,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 20px 16px; }
 
 /* ── Chart ────────────────────────────────────────── */
 .chart-wrap { position: relative; height: 270px; }
+.tl-scroll, .tl-inner { position: relative; height: 100%; }
+.tl-axis { display: none; }
 .chart-missing { display: flex; align-items: center; justify-content: center; height: 270px;
   color: #8a7a95; font-size: 0.9rem; text-align: center; padding: 0 20px;
   background: #faf7fc; border: 1px dashed #d6c8de; border-radius: 8px; }
@@ -432,6 +434,14 @@ tfoot td {
   /* The row carries the colour (blood, ovulation, empty); the cell borrows it,
      or the scrolling columns would show through from underneath. */
   .log-tbl td:first-child, .log-tbl td:nth-child(2)  { background: inherit; }
+
+  /* The timeline scrolls sideways at 90 days per screen. --tl-screens is
+     days / 90, set by drawTimelineChart. The 44px is roughly the temperature
+     scale's width: the pinned copy covers that strip of every screen, so the
+     visible plot is (100% - 44px) wide and that is what holds 90 days. */
+  .tl-scroll { overflow-x: auto; }
+  .tl-inner  { width: calc(var(--tl-screens, 1) * (100% - 44px) + 44px); }
+  .tl-axis   { display: block; position: absolute; left: 0; top: 0; pointer-events: none; }
 }
 </style>
 </head>
@@ -452,6 +462,23 @@ tfoot td {
 <script>
 let timelineChart   = null;
 let overlayChart    = null;
+let _tlScroll       = null;   // { left, atEnd } of the phone timeline, kept across redraws
+
+// Same cutoff as the CSS phone layout. Crossing it (a phone turned sideways)
+// redraws the timeline so its scrolling, scale copy and sharpness follow.
+const phoneMQ = matchMedia('(max-width: 620px)');
+phoneMQ.addEventListener('change', () => {
+  _tlScroll = null;
+  if (timelineChart && allCycles) drawTimelineChart(allCycles);
+});
+
+// On a phone a tap inside the plot does nothing: no pop-up, no enlarged dot —
+// on the timeline it would fire on every swipe. Taps outside the plot still
+// pass, so the comparison chart's legend still toggles cycles.
+const inertOnPhone = {
+  id: 'inertOnPhone',
+  beforeEvent(chart, args) { if (phoneMQ.matches && args.inChartArea) return false; },
+};
 let allCycles        = null;
 let overlayShowFull  = false;
 let selectedLogCycle = null;
@@ -1995,7 +2022,10 @@ function render(cycles) {
         <div class="legend-item"><div class="dot" style="background:#ab47bc"></div>Ovulation</div>
         <div class="legend-item"><span class="moon" style="margin-right:0">\u{1F313}</span>Moon phase (strip above chart)</div>
       </div>
-      <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
+      <div class="chart-wrap">
+        <div class="tl-scroll" id="tlScroll"><div class="tl-inner" id="tlInner"><canvas id="chartTimeline"></canvas></div></div>
+        <canvas class="tl-axis" id="tlAxis"></canvas>
+      </div>
     </div>
     <div class="section">
       <h2>Cycle Comparison &mdash; by Day Number</h2>
@@ -2155,10 +2185,10 @@ function baseOptions(xTicks, yMinMax, tooltipExtra) {
 function chartsUnavailable() {
   if (typeof Chart !== 'undefined') return false;
   for (const id of ['chartTimeline', 'chartOverlay']) {
-    const c = document.getElementById(id);
-    if (c && c.parentNode) {
-      c.parentNode.className = 'chart-missing';
-      c.parentNode.innerHTML = 'These charts need an internet connection to load.';
+    const wrap = document.getElementById(id)?.closest('.chart-wrap');
+    if (wrap) {
+      wrap.className = 'chart-missing';
+      wrap.innerHTML = 'These charts need an internet connection to load.';
     }
   }
   console.warn('Chart.js did not load — the dashboard was drawn without its charts.');
@@ -2260,12 +2290,42 @@ function drawTimelineChart(cycles) {
     },
   };
 
+  // Phone only: copy the temperature scale (everything left of the plot) onto
+  // the canvas pinned over the scroll box, so it stays put while days scroll.
+  // Every frame, so it follows resizes; it is a small strip.
+  const pinnedAxisPlugin = {
+    id: 'pinnedAxis',
+    afterDraw(chart) {
+      const ax = document.getElementById('tlAxis');
+      if (!ax || !phoneMQ.matches || !chart.chartArea) return;
+      const r = chart.currentDevicePixelRatio;
+      const w = Math.ceil(chart.chartArea.left), h = chart.height;
+      ax.width = w * r; ax.height = h * r;
+      ax.style.width = w + 'px'; ax.style.height = h + 'px';
+      const c = ax.getContext('2d');
+      c.fillStyle = 'white';   // the .section background; the plot scrolls underneath
+      c.fillRect(0, 0, ax.width, ax.height);
+      c.drawImage(chart.canvas, 0, 0, w * r, h * r, 0, 0, w * r, h * r);
+    },
+  };
+
+  // Phone width is set in CSS from this; under 90 days it is one screen.
+  const screens = Math.max(1, allRows.length / 90);
+  document.getElementById('tlInner').style.setProperty('--tl-screens', screens);
+
+  // A canvas past ~16.7M pixels draws blank on iPhones. Years of data at 90
+  // days per phone screen can get there, so sharpness drops before that does.
+  const maxCssW = 620 * screens, cssH = 210;
+  const dpr = phoneMQ.matches
+    ? Math.min(window.devicePixelRatio || 1, Math.sqrt(16e6 / (maxCssW * cssH)))
+    : window.devicePixelRatio || 1;
+
   // draw cycle separator lines via vertical annotations approximated with segment colors
   const { min, max } = yRange([temps]);
 
   timelineChart = new Chart(document.getElementById('chartTimeline').getContext('2d'), {
     type: 'line',
-    plugins: [moonStripPlugin],
+    plugins: [moonStripPlugin, pinnedAxisPlugin, inertOnPhone],
     data: {
       labels,
       datasets: [
@@ -2300,6 +2360,7 @@ function drawTimelineChart(cycles) {
       // Top padding reserves an empty band for the moon strip so it can never
       // collide with the temperature line.
       layout: { padding: { top: 28 } },
+      devicePixelRatio: dpr,
       ...baseOptions({}, { min, max }, {
         title: (items) => labels[items[0].dataIndex],
         afterBody: (items) => {
@@ -2318,6 +2379,14 @@ function drawTimelineChart(cycles) {
       }),
     },
   });
+
+  // Opens on today's end. An auto-refresh keeps the spot you scrolled to,
+  // unless you were at the end — then it follows the newest day.
+  const sc = document.getElementById('tlScroll');
+  sc.scrollLeft = (!_tlScroll || _tlScroll.atEnd) ? sc.scrollWidth : _tlScroll.left;
+  sc.onscroll = () => {
+    _tlScroll = { left: sc.scrollLeft, atEnd: sc.scrollLeft + sc.clientWidth >= sc.scrollWidth - 2 };
+  };
 }
 
 // ── Chart 2: Cycle overlay ─────────────────────────────────────────────────
@@ -2494,7 +2563,7 @@ function drawOverlayChart(cycles) {
   overlayChart = new Chart(document.getElementById('chartOverlay').getContext('2d'), {
     type: 'line',
     data: { labels, datasets },
-    plugins: [ovBandPlugin],
+    plugins: [ovBandPlugin, inertOnPhone],
     options: {
       ...baseOptions(
         { callback: (_, i) => i + 1 },
