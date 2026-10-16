@@ -10,6 +10,8 @@
 
 # Changelog
 
+- **[Plan]** (2026-10-16) **Data moved off Google Sheets to Cloudflare.** The app now saves and loads through a new server instead of the Google sheet; both links (yours and Tirzah's) are unchanged, and all 198 days came across matching. The Google sheet is kept as a frozen backup — a stale open copy of the app that tries to save there keeps the entry and says to reload. The Log tab has a new **Download all data** button that saves everything as a spreadsheet file. (Spec: `Docs/Cloudflare Migration Spec.md`.)
+
 - **[Fly]** (2026-10-16) **Missed days show in the Daily Log.** A day you skipped between two logged days now appears in the dashboard's Daily Log table as a faded row with its day number, date and "not logged", so the days either side no longer look back to back. Nothing is saved for these rows — they are just drawn in.
 
 - **[Fly]** (2026-10-16) **Log symptoms from a panel, with new fields.** The question bar is gone. Each day on the Log tab is one row: Temp, Time, and a **+** button that slides up a Symptoms panel with everything else (flow, mucus, cervix, breasts, arousal, acne, cramps, penetration, protected, mood, reading quality, ovulation, Day 1, note). Under each row, one line lists what the day holds, e.g. "penetration (protected)". Mood lets you pick several and add your own; added moods are remembered once saved. Protected stays greyed out until Penetration is ticked. On the dashboard, the Cervix, Pos, Mucus and Breasts columns are one Symptoms column, and the chart pop-up lists the same. If the sheet is missing a column, the save says so and keeps the change on screen instead of retrying forever. (Spec: `Docs/Symptoms Picker Spec.md`.)
