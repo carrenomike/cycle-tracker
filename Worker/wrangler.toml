@@ -1,0 +1,10 @@
+# Cloudflare Worker for the cycle tracker. Setup: Worker/SETUP.md.
+# No secrets here — this repo is public. The two tokens are Worker secrets.
+name = "cycle-tracker"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cycle"
+database_id = "28d532fd-3729-4f39-ae52-9c241dd01657"

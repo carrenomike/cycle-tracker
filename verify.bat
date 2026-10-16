@@ -39,7 +39,19 @@ if not "%N%"=="4" (
   exit /b 1
 )
 
-node Tools\verify-proxy.js "%A1%" "%A2%" "%A3%" "%A4%"
+REM `verify.bat worker` checks the Cloudflare Worker instead (cf1): its URL is
+REM the one line of %USERPROFILE%\.cycle-worker.txt, same tokens, no sheet ID.
+if /i "%~1"=="worker" (
+  if not exist "%USERPROFILE%\.cycle-worker.txt" (
+    echo Missing "%USERPROFILE%\.cycle-worker.txt" - see Worker\SETUP.md.
+    pause
+    exit /b 1
+  )
+  set /p W=<"%USERPROFILE%\.cycle-worker.txt"
+  call node Tools\verify-proxy.js "%%W%%" "%A2%" "%A3%"
+) else (
+  node Tools\verify-proxy.js "%A1%" "%A2%" "%A3%" "%A4%"
+)
 set "RC=%ERRORLEVEL%"
 echo.
 if not "%RC%"=="0" echo *** verify-proxy reported a problem - see above. ***

@@ -6,6 +6,10 @@
 // Tokens and the sheet ID are arguments, not constants: this repo is public.
 // Pass the sheet ID to also confirm the sheet itself is private to the world.
 //
+// Also runs against the Cloudflare Worker (cf1): pass its URL instead of the
+// /exec URL and no sheet ID (`verify.bat worker` does that). The Worker is told
+// apart by its read reply having no `tz` — it stores times as text.
+//
 // Checks the four rejection paths, exercises the write endpoint end to end
 // against a sentinel date, then pulls the real rows through the SAME
 // adapter and the SAME safety engine the app uses — both extracted out of
@@ -33,8 +37,8 @@ const EXPECT = {
   minRows: 165,
   first: '2026-03-25',
   notBefore: '2026-09-11',   // the last migrated date; later is fine, earlier is a loss
-  day1: ['Mar 25', 'Apr 26', 'May 25', 'Jul 1', 'Aug 14'],
-  ovDays: [16, 18, 23, 31, 23],
+  day1: ['Mar 25', 'Apr 26', 'May 25', 'Jul 1', 'Aug 14', 'Sep 19'],
+  ovDays: [16, 18, 23, 31, 23, 20],
   // ca2 dropped the source sheet's Time column and nothing noticed for two
   // slices. Counted straight off the original export: 88 of the 165 migrated
   // rows carry a time. A floor means the recovery cannot quietly regress while
@@ -49,9 +53,12 @@ const EXPECT = {
   // to 30. The engine and adapter blocks are byte-identical to the 2026-09-13
   // run, so this is new data, not a rule that moved. Once three-over-six has
   // fired the day is fixed, so cycle 5 should now hold at 30 until cycle 6.
+  // Cycle 6 (Day 1 Sep 19) added 2026-10-16, read off the Worker copy during
+  // cf1: ovulation day 20, three-over-six fired on day 23, opens on day 24.
+  // It is the live cycle, so like cycle 5 it may move once more as data lands.
   // Any OTHER change here is a rule that broke or history being rewritten
   // — never a shrug.
-  opensOn: [24, 22, 30, 37, 30],
+  opensOn: [24, 22, 30, 37, 30, 24],
 };
 
 let failed = 0;
@@ -259,6 +266,8 @@ function splitCycles(rows) {
     console.log('\nNo rows to check — stopping.\n');
     process.exit(1);
   }
+  const onWorker = !('tz' in reader);
+  console.log(`\n  info  server: ${onWorker ? 'the Cloudflare Worker' : 'the Google sheet proxy'}`);
 
   console.log('\n--- THE ca2 PASTE ---');
   const rows = reader.rows.map(cells => {
@@ -267,6 +276,10 @@ function splitCycles(rows) {
     return o;
   });
   atLeast(rows.length, EXPECT.minRows, 'row count');
+  if (!rows.length) {
+    console.log('\nNo rows at all — on the Worker, run Tools/copy-to-worker.js first. Stopping.\n');
+    process.exit(1);
+  }
   is(rows[0].Date, EXPECT.first, 'first date');
   atLeast(rows[rows.length - 1].Date, EXPECT.notBefore, 'last date');
   const dupes = rows.map(r => r.Date).filter((d, i, a) => a.indexOf(d) !== i);
@@ -281,7 +294,9 @@ function splitCycles(rows) {
     // was stored through it on the way in, so the round trip only cancels while
     // the two agree. Code.gs falls back to Etc/GMT if the sheet reports none —
     // that fallback would shift every time by hours, in silence.
-    reader.tz && reader.tz !== 'Etc/GMT'
+    onWorker
+      ? pass('the Worker stores times as text, so no timezone is involved')
+      : reader.tz && reader.tz !== 'Etc/GMT'
       ? pass(`sheet timezone reported as ${reader.tz}`)
       : fail(`sheet timezone is ${JSON.stringify(reader.tz)} — times are rendered through it ` +
              `and a missing one shifts them all (redeploy Code.gs, check File > Settings)`);
@@ -388,7 +403,7 @@ function splitCycles(rows) {
     const ins = await post(url, { t: writerToken, date: SENTINEL,
       values: { Temp: '97.11', Time: '6:32 AM', Flow: 'spotting', Note: 'verify-proxy sentinel' } });
     ins.ok === true && (ins.action === 'inserted' || ins.action === 'appended')
-      ? pass(`a writer write lands (${ins.action}, row ${ins.row})`)
+      ? pass(`a writer write lands (${ins.action}${ins.row ? `, row ${ins.row}` : ''})`)
       : fail(`the writer write returned ${JSON.stringify(ins).slice(0, 200)}`);
     await pause();
 
@@ -469,6 +484,23 @@ function splitCycles(rows) {
     if (got.length === 1) {
       is(got[0].Mood, 'anxious, irritable', 'the mood list reads back as written');
       is(got[0].Arousal, '', 'a cleared Arousal reads back blank');
+    }
+
+    // 2c. Worker only: saving a day with every field blank deletes it — the
+    //     server decides after the merge, since only it sees the whole row.
+    //     Then the day is written again so the cleanup below has one to delete.
+    if (onWorker) {
+      const blank = {};
+      for (const c of reader.cols) if (c !== 'Date') blank[c] = '';
+      wrote(await post(url, { t: writerToken, date: SENTINEL, values: blank }), 'deleted',
+            'clearing every field deletes the day');
+      await pause();
+      rs = await rowsAt(writerToken);
+      is(sentinelRow(rs).length, 0, 'the all-blank day is gone');
+      is(rs.length, before, 'the row count is back to where it started');
+      wrote(await post(url, { t: writerToken, date: SENTINEL, values: { Temp: '97.33' } }), 'inserted',
+            'the day can be written again after it was cleared');
+      await pause();
     }
 
     // 3. Cleanup. There is no delete in the app — it exists so this check can
