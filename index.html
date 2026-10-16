@@ -290,41 +290,35 @@ tfoot td {
 }
 .tab.on { background: #7b1fa2; border-color: #7b1fa2; color: white; }
 
-/* ── Log: one question across many days (ca12) ──────────────── */
+/* ── Log: a row per day, a Symptoms panel per day ──────────── */
 .log-top {
   position: sticky; top: 0; z-index: 2;
   margin: 0 -4px 12px; padding: 8px 4px;
   background: white;
 }
-.qbar { display: flex; flex-wrap: wrap; gap: 6px; }
-.q {
-  flex: 1 1 auto;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 1px solid #d1c4e9;
-  background: white;
-  color: #7b1fa2;
-  border-radius: 20px;
-  font-size: 0.86rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.q.on { background: #7b1fa2; border-color: #7b1fa2; color: white; }
 .day-card { border: 1px solid #ede7f6; border-radius: 10px; margin-bottom: 8px; padding: 10px 12px 12px; }
 .day-card.changed { background: #faf5fd; border-color: #b39ddb; }
 .day-card.bad { border-color: #c62828; }
-.day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  font-size: 0.9rem; color: #2d2d2d; }
-.day-when { font-weight: 600; white-space: nowrap; }
-.day-sum { color: #888; font-size: 0.8rem; text-align: right; }
+.day-head { font-size: 0.9rem; font-weight: 600; color: #2d2d2d; }
+.day-row { display: flex; align-items: flex-end; gap: 8px; }
+.day-row .fld { flex: 1; min-width: 0; }
+.sym-btn {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #7b1fa2;
+  background: white;
+  color: #7b1fa2;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.day-sum { color: #888; font-size: 0.8rem; margin-top: 6px; line-height: 1.4; }
 .day-sum .chg { color: #4a148c; background: #ede7f6; border-radius: 3px; padding: 0 3px; font-weight: 600; }
 .day-sum .unsent { display: block; color: #bf360c; font-weight: 600; }
 .day-card.unlogged .day-sum { color: #bbb; font-style: italic; }
-.day-ctl { margin-top: 6px; }
 .day-problem { color: #c62828; font-size: 0.82rem; font-weight: 600; }
 .day-problem:not(:empty) { margin-top: 6px; }
-.pair { display: flex; gap: 10px; }
-.pair .fld { flex: 1; min-width: 0; }
 .fld { margin-top: 8px; }
 .fld > label { display: block; font-size: 0.72rem; text-transform: uppercase;
   letter-spacing: 0.5px; color: #999; margin-bottom: 5px; }
@@ -384,6 +378,28 @@ tfoot td {
 .save-status:last-child { margin-bottom: 0; }
 .save-status.bad  { color: #c62828; font-weight: 600; }
 .save-status.good { color: #2e7d32; }
+.pk-back { position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,0.3); }
+.picker {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 11;
+  max-width: 720px; height: 88vh; margin: 0 auto;
+  display: flex; flex-direction: column;
+  background: white;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -4px 20px rgba(74,20,140,0.18);
+}
+.picker.pk-open { animation: pk-up 0.2s ease-out; }
+@keyframes pk-up { from { transform: translateY(100%); } }
+.pk-head { padding: 14px 16px 8px; font-weight: 600; color: #4a148c; border-bottom: 1px solid #ede7f6; }
+.pk-body { flex: 1; overflow-y: auto; padding: 0 16px 12px; }
+.pk-sec { padding: 10px 0 12px; border-bottom: 1px solid #ede7f6; }
+.pk-sec:last-child { border-bottom: 0; }
+.pk-sec h3 { margin: 0; font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: #999; }
+.pk-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #ede7f6; }
+.pk-foot .bar-btn { width: 100%; }
+.mood-add { display: flex; gap: 6px; margin-top: 8px; }
+.mood-add input { flex: 1; min-width: 0; }
+.log-tbl td.sym { min-width: 140px; }
 .more-btn {
   width: 100%;
   margin-top: 10px;
@@ -403,7 +419,7 @@ tfoot td {
   .chart-missing { height: 210px; }
   .hide-sm { display: none; }
 
-  /* Even after hide-sm has done its work the log still shows eight columns on a
+  /* Even after hide-sm has done its work the log still shows nine columns on a
      phone, so .tbl-wrap scrolls it sideways — and Temp, Flow and Quality scroll
      away from the day they belong to. Pin Day and Date so a row always says what
      it is.
@@ -515,6 +531,7 @@ function splitCycles(rows) {
 function hasData(r) {
   return r.Temp || r.Time || r['Temp Quality'] || r.Exclude || r.Flow || r['Cervix Texture'] ||
          r['Cervical Mucus'] || r['Cervix Position'] || r.Breasts ||
+         r.Arousal || r.Acne || r.Cramps || r.Penetration || r.Protected || r.Mood ||
          r['Cycle Start'] || r.Ovulation || r.Note;
 }
 
@@ -801,11 +818,14 @@ function dismissBanner() {
 // a 'none' here would put a value in the sheet that nothing else ever wrote.
 const QUALITY_OPTS = ['off-time', 'disturbed'];
 
+// Mood is the one field Mike can add options to. There is no stored list: the
+// options are these plus every mood already in the sheet's Mood column, so an
+// added mood is remembered by being saved on a day, and nowhere else.
+const MOOD_BUILTINS = ['happy', 'calm', 'sad', 'anxious', 'irritable', 'angry', 'teary', 'low'];
+
 const ENTRY_FIELDS = [
   { col: 'Temp',            label: 'Temp (°F)',     type: 'temp' },
   { col: 'Time',            label: 'Time taken',         type: 'time' },
-  { col: 'Temp Quality',    label: 'Reading quality',    type: 'quality' },
-  { col: 'Exclude',         label: 'Exclude this reading from the rules', type: 'flag' },
   { col: 'Flow',            label: 'Flow',               type: 'select',
     options: ['', 'spotting', 'bleeding'], labels: ['none', 'spotting', 'bleeding'] },
   { col: 'Cervical Mucus',  label: 'Cervical mucus',     type: 'select',
@@ -817,10 +837,58 @@ const ENTRY_FIELDS = [
     options: ['', 'low', 'mid', 'high'], labels: ['—', 'low', 'mid', 'high'] },
   { col: 'Breasts',         label: 'Breasts',            type: 'select',
     options: ['', 'minor', 'sore'], labels: ['none', 'minor', 'sore'] },
+  { col: 'Arousal',         label: 'Arousal',            type: 'select',
+    options: ['', 'low', 'med', 'high'], labels: ['none', 'low', 'med', 'high'] },
+  { col: 'Acne',            label: 'Acne',               type: 'flag' },
+  { col: 'Cramps',          label: 'Cramps',             type: 'flag' },
+  { col: 'Penetration',     label: 'Penetration',        type: 'flag' },
+  { col: 'Protected',       label: 'Protected',          type: 'flag' },
+  { col: 'Mood',            label: 'Mood',               type: 'mood' },
+  { col: 'Temp Quality',    label: 'Reading quality',    type: 'quality' },
+  { col: 'Exclude',         label: 'Exclude this reading from the rules', type: 'flag' },
   { col: 'Ovulation',       label: 'Ovulation marker',   type: 'flag' },
   { col: 'Cycle Start',     label: 'Cycle start (Day 1)', type: 'flag' },
   { col: 'Note',            label: 'Note',               type: 'text' },
 ];
+
+// Where each field is entered: Temp and Time on the day's row, everything else
+// in that day's Symptoms panel, in this order. entry-selfcheck asserts every
+// field is in exactly one place — a field neither shows is one nobody can enter.
+const ROW_COLS = ['Temp', 'Time'];
+const PICKER_SECTIONS = [
+  { label: 'Flow',            cols: ['Flow'] },
+  { label: 'Mucus',           cols: ['Cervical Mucus'] },
+  { label: 'Cervix',          cols: ['Cervix Texture', 'Cervix Position'] },
+  { label: 'Breasts',         cols: ['Breasts'] },
+  { label: 'Arousal',         cols: ['Arousal'] },
+  { label: 'Yes / no',        cols: ['Acne', 'Cramps', 'Penetration', 'Protected'] },
+  { label: 'Mood',            cols: ['Mood'] },
+  { label: 'Reading quality', cols: ['Temp Quality', 'Exclude'] },
+  { label: 'Markers',         cols: ['Ovulation', 'Cycle Start'] },
+  { label: 'Note',            cols: ['Note'] },
+];
+
+// The sheet's Mood cell is a comma list. Read leniently — a hand-typed
+// "Anxious,low" is the same two moods — and never twice.
+function splitMoods(s) {
+  const out = [];
+  for (const m of String(s || '').split(',')) {
+    const t = m.trim().toLowerCase();
+    if (t && out.indexOf(t) < 0) out.push(t);
+  }
+  return out;
+}
+const moodKey = s => splitMoods(s).sort().join(',');
+
+// "+ add" in the Mood section. A comma would split the mood in two the next
+// time the cell is read, so it is refused rather than quietly removed.
+function newMood(text, options) {
+  const m = String(text || '').trim().toLowerCase();
+  if (!m) return { problem: 'Type a mood first.' };
+  if (m.indexOf(',') >= 0) return { problem: 'A mood cannot have a comma in it — the sheet keeps moods as a comma list.' };
+  if (options.indexOf(m) >= 0) return { problem: `"${m}" is already one of the moods.` };
+  return { mood: m };
+}
 
 const isoOf = d =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -853,7 +921,7 @@ function fromSheetTime(s) {
 // A form value as the sheet would hold it.
 function sheetValue(f, v) {
   if (f.type === 'flag')    return v ? 'TRUE' : '';
-  if (f.type === 'quality') return (v || []).join(', ');
+  if (f.type === 'quality' || f.type === 'mood') return (v || []).join(', ');
   if (f.type === 'time')    return toSheetTime(v);
   return String(v == null ? '' : v).trim();
 }
@@ -874,23 +942,13 @@ function entryDiff(existing, form) {
   for (const f of ENTRY_FIELDS) {
     const was = existing ? String(existing[f.col] || '').trim() : '';
     const now = sheetValue(f, form[f.col]);
-    if (f.type === 'temp' ? !sameTemp(was, now) : was !== now) out[f.col] = now;
+    const changed = f.type === 'temp' ? !sameTemp(was, now)
+                  : f.type === 'mood' ? moodKey(was) !== moodKey(now)   // the same moods, any order
+                  : was !== now;
+    if (changed) out[f.col] = now;
   }
   return out;
 }
-
-// ca12: the Log screen asks one question at a time across many days. Every
-// field belongs to exactly one question; entry-selfcheck asserts it, because a
-// field no question shows is a field nobody can ever enter.
-const QUESTIONS = [
-  { key: 'temp',    label: 'Temp',    cols: ['Temp', 'Time', 'Temp Quality', 'Exclude'] },
-  { key: 'flow',    label: 'Flow',    cols: ['Flow'] },
-  { key: 'mucus',   label: 'Mucus',   cols: ['Cervical Mucus'] },
-  { key: 'cervix',  label: 'Cervix',  cols: ['Cervix Texture', 'Cervix Position'] },
-  { key: 'breasts', label: 'Breasts', cols: ['Breasts'] },
-  { key: 'flags',   label: 'Flags',   cols: ['Ovulation', 'Cycle Start'] },
-  { key: 'note',    label: 'Note',    cols: ['Note'] },
-];
 
 // A sheet row in the shape entryDiff() reads a form in.
 function rowForm(row) {
@@ -900,6 +958,7 @@ function rowForm(row) {
     form[f.col] = f.type === 'flag'    ? v === 'TRUE'
                 : f.type === 'quality' ? QUALITY_OPTS.filter(o => v.toLowerCase().includes(o))
                 : f.type === 'time'    ? fromSheetTime(v)
+                : f.type === 'mood'    ? splitMoods(v)
                 : v;
   }
   return form;
@@ -934,6 +993,14 @@ function entryProblem(existing, form) {
   }
   // A time with no reading is a half-filled form, not a missed reading.
   if (!t && toSheetTime(form.Time)) return 'There is a time but no temperature.';
+  // The panel greys Protected out without Penetration and unticks it with
+  // Penetration, so this is the backstop for every other path. A row the sheet
+  // already holds that way is left as it is, not refused: it is not this
+  // save's doing, and refusing it would block every other field on that day.
+  if (form.Protected && !form.Penetration) {
+    const was = rowForm(existing);
+    if (!(was.Protected && !was.Penetration)) return 'Protected is ticked but Penetration is not.';
+  }
   return null;
 }
 
@@ -967,7 +1034,7 @@ function writeWarnings(res) {
   return [].concat(
     res && res.unreadableDates ? ['the sheet has date cells this app cannot read, so a new row ' +
                                   'may not be in date order: ' + res.unreadableDates.join(', ')] : [],
-    res && res.textNotStored   ? ['the note may have been stored as a formula rather than as text: ' +
+    res && res.textNotStored   ? ['typed text may have been stored as a formula rather than as text: ' +
                                   res.textNotStored.join('; ')] : []);
 }
 
@@ -976,6 +1043,12 @@ function writeWarnings(res) {
 // place — queueing one would pin an unsent banner no retry could ever clear.
 const REFUSALS = ['read-only', 'no-access', 'not-configured'];
 function isRefusal(err) { return REFUSALS.indexOf(err) >= 0; }
+
+// Answers the server will give again however often it is asked, until someone
+// changes the sheet or the app — `unknown-column` is a header missing from the
+// sheet. Queueing one would be a retry that can never land, so the day stays a
+// change on screen instead, with the reason next to it.
+function isFinalWriteError(err) { return /^(unknown-column|bad-request):/.test(String(err || '')); }
 
 // What the app says out loud for each error the write endpoint can return.
 // Anything unrecognised is shown verbatim — never swallowed, never softened.
@@ -1064,9 +1137,14 @@ function isQueueEntry(e) {
 function queueMerge(entries, iso, values, now) {
   const prev = entries.find(e => e.iso === iso) || null;
   const out  = entries.filter(e => e.iso !== iso);
+  const merged = Object.assign({}, prev ? prev.values : null, values);
+  // An earlier edit can tick Protected and a later one untick Penetration; each
+  // was fine on its own, together they would put Protected in the sheet without
+  // Penetration. Unticking Penetration unticks Protected, on this path too.
+  if (merged.Penetration === '' && 'Protected' in merged) merged.Protected = '';
   out.push({
     iso: iso,
-    values: Object.assign({}, prev ? prev.values : null, values),
+    values: merged,
     at: prev ? prev.at : now,
     tries: prev ? prev.tries : 0,
     lastError: null,
@@ -1158,7 +1236,8 @@ function unsentNoteText(label, text, unknown) {
 
 let _drafts      = new Map();   // iso -> the fields Mike has touched; memory only, never stored
 let _suggested   = new Set();   // days whose Cycle start tick is a suggestion, not Mike's
-let _question    = 'temp';
+let _pickerIso   = null;        // the day whose Symptoms panel is open, if any
+let _pickerFresh = false;       // true for the one draw that opens it, so it slides up once, not per tap
 let _reviewing   = false;
 let _logNote     = null;        // { text, bad, at } — what the last save or problem had to say
 let _catchupDays = 14;          // how far back the catch-up list runs
@@ -1211,9 +1290,30 @@ function dayLabel(iso) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-// Everything a day holds, in one line — every field, because the screen only
-// ever shows one question's controls and the rest have to be readable from
-// here. `changed` are the columns an unsaved edit touches, highlighted; a
+// The symptoms on a day, as [columns, words] pairs in reading order. One
+// wording for the Log row and for Tirzah's Symptoms column and chart tooltip,
+// so the two can never describe the same day differently.
+function symptomBits(r) {
+  const v = c => String(r[c] || '').trim();
+  const yes = c => v(c) === 'TRUE';
+  const br = v('Breasts');
+  const cx = [v('Cervix Texture'), v('Cervix Position')].filter(Boolean).join(' ');
+  return [
+    [['Breasts'], br && (br === 'minor' ? 'minor breast soreness' : br + ' breasts')],
+    [['Cervical Mucus'], v('Cervical Mucus') && v('Cervical Mucus').toLowerCase() + ' mucus'],
+    [['Cervix Texture', 'Cervix Position'], cx && 'cervix ' + cx],
+    [['Arousal'], v('Arousal') && 'arousal ' + v('Arousal')],
+    [['Acne'], yes('Acne') ? 'acne' : ''],
+    [['Cramps'], yes('Cramps') ? 'cramps' : ''],
+    [['Penetration'], yes('Penetration') ? 'penetration' : ''],
+    [['Protected'], yes('Protected') ? 'protected' : ''],
+    [['Mood'], v('Mood') && 'mood ' + splitMoods(v('Mood')).join(', ')],
+  ].filter(b => b[1]);
+}
+const symptomText = r => symptomBits(r).map(b => b[1]).join(', ');
+
+// Everything a day holds apart from the temp and time in its boxes, in one
+// comma line. `changed` are the columns an unsaved edit touches, highlighted; a
 // cleared one says so, or the change would be invisible. (ca3a, ca12)
 function daySummary(r, changed, suggestedStart) {
   if (!r) return 'not logged';
@@ -1223,21 +1323,16 @@ function daySummary(r, changed, suggestedStart) {
   const add = (cols, text) => {
     if (text) bits.push(cols.some(c => c in changed) ? `<b class="chg">${escHTML(text)}</b>` : escHTML(text));
   };
-  const t = v('Temp');
-  add(['Temp', 'Time'], (t ? (/^\d{2,3}(\.\d{1,2})?$/.test(t) ? parseFloat(t).toFixed(2) : t) + '°' : '') +
-                        (v('Time') ? ` at ${v('Time')}` : ''));
+  add(['Flow'], v('Flow'));
+  for (const [cols, text] of symptomBits(r)) add(cols, text);
   add(['Temp Quality'], v('Temp Quality'));
   add(['Exclude'], v('Exclude') === 'TRUE' ? 'excluded' : '');
-  add(['Flow'], v('Flow'));
-  add(['Cervical Mucus'], v('Cervical Mucus') && 'mucus ' + v('Cervical Mucus').toLowerCase());
-  const cx = [v('Cervix Texture'), v('Cervix Position')].filter(Boolean).join(', ');
-  add(['Cervix Texture', 'Cervix Position'], cx && 'cervix ' + cx);
-  add(['Breasts'], v('Breasts') && 'breasts ' + v('Breasts'));
   add(['Ovulation'], v('Ovulation') === 'TRUE' ? 'ovulation' : '');
   add(['Cycle Start'], v('Cycle Start') === 'TRUE' ? (suggestedStart ? 'day 1 (suggested)' : 'day 1') : '');
   add(['Note'], v('Note') && 'note: ' + v('Note'));
   for (const c of Object.keys(changed)) if (changed[c] === '') add([c], `${c.toLowerCase()} cleared`);
-  return bits.length ? bits.join(' · ') : 'blank row';
+  if (bits.length) return bits.join(', ');
+  return v('Temp') || v('Time') ? 'no symptoms' : 'blank row';
 }
 
 // ── The day's state, always derived: sheet row, overlaid by the draft ─────
@@ -1274,7 +1369,7 @@ function dayCardClass(iso) {
     (Object.keys(dayChanges(iso)).length ? ' changed' : '') + (dayProblem(iso) ? ' bad' : '');
 }
 
-// ── Controls: one question's fields, for one day ─────────────────────────
+// ── Controls: the row's temp and time, and the day's Symptoms panel ───
 
 // A value the sheet holds but the options do not know stays shown and
 // selectable, or it could not be told apart from "nothing" and picking it back
@@ -1287,35 +1382,67 @@ function optionsFor(f, iso) {
   return { opts, labs };
 }
 
-function fieldHTML(iso, col, form, changes) {
+// The built-in moods, then every other mood the loaded sheet or an unsaved
+// change holds. Rebuilt on every draw rather than kept, so it can never
+// disagree with the sheet.
+function moodOptions() {
+  const seen = new Set(MOOD_BUILTINS);
+  const extra = [];
+  const take = list => { for (const m of list) if (!seen.has(m)) { seen.add(m); extra.push(m); } };
+  for (const r of _byIso.values()) take(splitMoods(r.Mood));
+  for (const d of _drafts.values()) if (d.Mood) take(d.Mood);
+  return MOOD_BUILTINS.concat(extra.sort());
+}
+
+function fieldHTML(iso, col, form, changes, showLabel) {
   const f   = ENTRY_FIELDS[F_AT(col)];
   const dis = _saving ? ' disabled' : '';
   const chg = col in changes ? ' chg' : '';
-  const btn = (on, click, text) =>
-    `<button class="opt${on ? ' on' : ''}${on ? chg : ''}" onclick="${click}"${dis}>${escHTML(text)}</button>`;
+  const btn = (on, click, text, off) =>
+    `<button class="opt${on ? ' on' : ''}${on ? chg : ''}" onclick="${click}"${off ? ' disabled' : dis}>${escHTML(text)}</button>`;
   const typed = `oninput="typeField('${iso}','${col}',this.value)"${dis}`;
-  const wrap  = inner => `<div class="fld${chg}"><label>${escHTML(f.label)}</label>${inner}</div>`;
+  const wrap  = inner => `<div class="fld${chg}">${showLabel ? `<label>${escHTML(f.label)}</label>` : ''}${inner}</div>`;
 
   if (f.type === 'temp') return wrap(`<input class="in-temp" type="text" inputmode="decimal" ` +
     `placeholder="97.88" value="${escHTML(form[col])}" ${typed}>`);
   if (f.type === 'time') return wrap(`<input type="time" value="${escHTML(form[col])}" ${typed}>`);
   if (f.type === 'text') return wrap(`<textarea rows="2" ${typed}>${escHTML(form[col])}</textarea>`);
-  if (f.type === 'flag') return btn(form[col], `toggleFlag('${iso}','${col}')`, f.label);
+  // Protected means nothing without Penetration, so it waits for it — but one
+  // the sheet already holds on its own stays untickable rather than stuck.
+  if (f.type === 'flag') return btn(form[col], `toggleFlag('${iso}','${col}')`,
+    f.label + (col === 'Cycle Start' && form[col] && _suggested.has(iso) ? ' (suggested)' : ''),
+    col === 'Protected' && !form.Penetration && !form.Protected);
   if (f.type === 'quality') return QUALITY_OPTS.map((o, j) =>
     btn(form[col].indexOf(o) >= 0, `toggleQuality('${iso}',${j})`, o)).join('');
+  if (f.type === 'mood') return wrap(`<div class="opts">${moodOptions().map((m, j) =>
+    btn(form[col].indexOf(m) >= 0, `toggleMood('${iso}',${j})`, m)).join('')}</div>
+    <div class="mood-add"><input id="moodNew" type="text" placeholder="+ add a mood" enterkeyhint="done"
+      onkeydown="if (event.key === 'Enter') addMood('${iso}', this.value)"${dis}>
+      <button class="opt" onclick="addMood('${iso}', document.getElementById('moodNew').value)"${dis}>Add</button></div>
+    <div class="day-problem" id="moodProb"></div>`);
   const { opts, labs } = optionsFor(f, iso);
   return wrap(`<div class="opts">${opts.map((o, j) =>
     btn(o === form[col], `pickOption('${iso}','${col}',${j})`, labs[j])).join('')}</div>`);
 }
 
-function controlsHTML(iso) {
+// Every field but temp and time, a section each, drawn fresh from the sheet
+// row and the draft every time — so opening, closing or redrawing it can never
+// lose or invent an edit.
+function pickerHTML(iso) {
   const form = dayForm(iso), ch = dayChanges(iso);
-  const one  = col => fieldHTML(iso, col, form, ch);
-  // Temp and time side by side, the three toggles that qualify them underneath.
-  if (_question === 'temp') return `<div class="pair">${one('Temp')}${one('Time')}</div>
-    <div class="opts">${one('Temp Quality')}${one('Exclude')}</div>`;
-  if (_question === 'flags') return `<div class="opts">${one('Ovulation')}${one('Cycle Start')}</div>`;
-  return QUESTIONS.find(q => q.key === _question).cols.map(one).join('');
+  const secs = PICKER_SECTIONS.map(sec => {
+    const toggles = sec.cols.every(c => ['flag', 'quality'].indexOf(ENTRY_FIELDS[F_AT(c)].type) >= 0);
+    const inner = sec.cols.map(c => fieldHTML(iso, c, form, ch, sec.cols.length > 1)).join('');
+    return `<div class="pk-sec"><h3>${escHTML(sec.label)}</h3>${toggles ? `<div class="opts">${inner}</div>` : inner}</div>`;
+  }).join('');
+  const fresh = _pickerFresh;
+  _pickerFresh = false;
+  return `<div class="pk-back" onclick="closePicker()"></div>
+    <div class="picker${fresh ? ' pk-open' : ''}" role="dialog" aria-label="Symptoms">
+      <div class="pk-head">Symptoms &middot; ${escHTML(dayLabel(iso))}</div>
+      <div class="pk-body" id="pickerBody">${secs}</div>
+      <div class="pk-foot"><button class="bar-btn go" onclick="closePicker()">Done</button></div>
+    </div>`;
 }
 
 function entryScreenHTML(cycles) {
@@ -1327,28 +1454,22 @@ function entryScreenHTML(cycles) {
     const d   = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     const iso = isoOf(d);
     const day = dayNumberFor(cycles, d);
-    const problem = dayProblem(iso);
+    const form = dayForm(iso), ch = dayChanges(iso);
     cards.push(`<div class="${dayCardClass(iso)}" id="day-${iso}">
-      <div class="day-head">
-        <span class="day-when">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</span>
-        <span class="day-sum" id="sum-${iso}">${daySummaryFor(iso)}</span>
-      </div>
-      <div class="day-ctl">${controlsHTML(iso)}</div>
-      <div class="day-problem" id="prob-${iso}">${escHTML(problem || '')}</div>
+      <div class="day-head">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</div>
+      <div class="day-row">${fieldHTML(iso, 'Temp', form, ch, true)}${fieldHTML(iso, 'Time', form, ch, true)}
+        <button class="sym-btn" onclick="openPicker('${iso}')">Symptoms</button></div>
+      <div class="day-sum" id="sum-${iso}">${daySummaryFor(iso)}</div>
+      <div class="day-problem" id="prob-${iso}">${escHTML(dayProblem(iso) || '')}</div>
     </div>`);
   }
 
   return `<div class="section">
     <h2>Log</h2>
-    <div class="log-top">
-      <div class="qbar">${QUESTIONS.map(q =>
-        `<button class="q${q.key === _question ? ' on' : ''}" onclick="setQuestion('${q.key}')">${q.label}</button>`
-      ).join('')}</div>
-      <div class="save-bar" id="saveBar">${saveBarInner()}</div>
-    </div>
+    <div class="log-top"><div class="save-bar" id="saveBar">${saveBarInner()}</div></div>
     <div>${cards.join('')}</div>
     <button class="more-btn" onclick="showMoreDays()">Show 14 more days</button>
-  </div>`;
+  </div>${_pickerIso ? pickerHTML(_pickerIso) : ''}`;
 }
 
 // ── Save bar ──────────────────────────────────────────────────────────────
@@ -1400,6 +1521,8 @@ function setField(iso, col, value) {
   _logNote = null;       // acknowledged by moving on
   _reviewing = false;    // the list being reviewed is no longer the one on screen
   const d = Object.assign({}, _drafts.get(iso), { [col]: value });
+  // Unticking Penetration unticks Protected, whichever way it was unticked.
+  if (col === 'Penetration' && !value) d.Protected = false;
   // A day put back the way the sheet has it is not a change, and must not hold
   // the refresh up or count in the save bar.
   if (Object.keys(draftChanges(_byIso.get(iso) || null, d)).length) {
@@ -1430,7 +1553,9 @@ function pickOption(iso, col, j) {
 }
 
 function toggleFlag(iso, col) {
-  setField(iso, col, !dayForm(iso)[col]);
+  const form = dayForm(iso);
+  if (col === 'Protected' && !form.Penetration && !form.Protected) return;   // greyed out; the backstop
+  setField(iso, col, !form[col]);
   if (col === 'Cycle Start') _suggested.delete(iso);   // Mike's hand now, either way
   redraw();
 }
@@ -1461,8 +1586,38 @@ function suggestStarts(iso) {
   }
 }
 
-function setQuestion(key) {
-  _question = key;
+function toggleMood(iso, j) {
+  const m = moodOptions()[j];
+  const was = dayForm(iso).Mood;
+  setField(iso, 'Mood', was.indexOf(m) < 0 ? was.concat(m) : was.filter(x => x !== m));
+  redraw();
+}
+
+// Adds the mood and picks it for this day. Refused in words next to the box,
+// with what was typed left in it to fix.
+function addMood(iso, text) {
+  if (_saving) return;
+  const r = newMood(text, moodOptions());
+  if (r.problem) {
+    const el = document.getElementById('moodProb');
+    if (el) el.textContent = r.problem;
+    return r.problem;
+  }
+  setField(iso, 'Mood', dayForm(iso).Mood.concat(r.mood));
+  redraw();
+  return null;
+}
+
+function openPicker(iso) {
+  _pickerIso = iso;
+  _pickerFresh = true;
+  redraw();
+}
+
+// Done, not save: every tap was already a change on screen, and the save bar's
+// Discard is the undo. Closing changes nothing.
+function closePicker() {
+  _pickerIso = null;
   redraw();
 }
 
@@ -1617,8 +1772,8 @@ async function saveAll() {
   _saving = true;
   _reviewing = false;
   redraw();   // the controls come back disabled: an edit made mid-save could be wiped by it
-  const saved = [], kept = [], stuck = [], warn = [];
-  let refused = null;
+  const saved = [], kept = [], stuck = [], warn = [], notSaved = [];
+  let refused = null, missingCol = false;
   try {
     for (let i = 0; i < days.length; i++) {
       const { iso, values } = days[i];
@@ -1630,6 +1785,7 @@ async function saveAll() {
         if (!res || res.ok !== true) {
           const err = new Error(writeErrorText(res && res.error));
           err.refusal = isRefusal(res && res.error);
+          err.final   = isFinalWriteError(res && res.error);
           throw err;
         }
         saved.push(iso);
@@ -1648,6 +1804,13 @@ async function saveAll() {
           refused = 'NOT saved — ' + text + ' ' +
             days.slice(i).map(d => dayLabel(d.iso)).join(', ') + ' did not go.';
           break;
+        }
+        if (e.final) {
+          // Not queued: it would fail the same way on every retry. The day
+          // stays a change on screen, so nothing is lost, and the rest still go.
+          notSaved.push(`${label} NOT saved — ${text}`);
+          if (/^unknown-column:/.test(e.message)) missingCol = true;
+          continue;
         }
         // Kept, not lost: the values are safe in the queue, shown on the day's
         // summary and in the banner.
@@ -1670,8 +1833,12 @@ async function saveAll() {
   if (saved.length) lines.push(`Saved ${saved.length} day${saved.length === 1 ? '' : 's'}.`);
   lines.push(...kept, ...warn.map(w => w + ' Worth a look at the sheet.'));
   if (stuck.length) lines.push(...stuck, 'Do not close the app: save again, or write the numbers down.');
+  if (notSaved.length) lines.push(...notSaved.map(l => l + '.'), (missingCol
+    ? 'The sheet is missing a column this app writes: add it (Apps Script/SETUP.md says how), then save again. '
+    : '') + 'Those changes are still on screen.');
   if (refused) lines.push(refused);
-  setLogNote(lines.join(' '), !!(kept.length || stuck.length || refused || warn.length), saved.length > 0);
+  setLogNote(lines.join(' '),
+    !!(kept.length || stuck.length || notSaved.length || refused || warn.length), saved.length > 0);
   // Re-read rather than patch the copy in memory: the safety verdict is
   // derived from the sheet, and a backdated write moves it. Once, after all.
   if (saved.length) loadData();
@@ -1822,6 +1989,7 @@ async function flushQueue(manual) {
         if (!res || res.ok !== true) {
           const err = new Error(writeErrorText(res && res.error));
           err.refusal = isRefusal(res && res.error);
+          err.final   = isFinalWriteError(res && res.error);
           throw err;
         }
         // Confirmed, so it goes — and the sheet, not this copy, is what gets
@@ -1837,7 +2005,11 @@ async function flushQueue(manual) {
         e.tries = (e.tries || 0) + 1;
         e.lastError = text;
         e.unknown = !!err.unknown;
-        notes.push(err.refusal
+        notes.push(err.final
+          ? `${dayLabel(e.iso)} NOT saved — ${text}. It is still here, and nothing more will send until ` +
+            (/^unknown-column:/.test(err.message)
+              ? 'that column is added to the sheet (Apps Script/SETUP.md says how).' : 'that is sorted out.')
+          : err.refusal
           ? `${dayLabel(e.iso)} could not be sent: ${text} It is still here, and nothing more ` +
             'will send until that is sorted out.'
           : unsentNoteText(dayLabel(e.iso), text, err.unknown));
@@ -1878,9 +2050,15 @@ function render(cycles) {
   if (_tab === 'log' && _role === 'writer') {
     if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
     if (overlayChart)  { overlayChart.destroy();  overlayChart  = null; }
+    // Every tap in the Symptoms panel redraws the screen; without this the
+    // panel would jump back to Flow each time Mood or Note was tapped.
+    const pk = document.getElementById('pickerBody');
+    const pkTop = pk ? pk.scrollTop : 0;
     document.getElementById('app').innerHTML =
       queueBannerHTML() +
       bannerHTML(_staleInfo, _dataWarnings, _bannerDismissed, Date.now()) + tabBarHTML() + entryScreenHTML(cycles);
+    const pk2 = document.getElementById('pickerBody');
+    if (pk2) pk2.scrollTop = pkTop;
     return;
   }
 
@@ -2117,10 +2295,7 @@ function render(cycles) {
           <th>Day</th><th>Date</th><th>Temp</th>
           <th class="hide-sm">Time</th>
           <th>Flow</th>
-          <th class="hide-sm">Cervix</th>
-          <th class="hide-sm">Pos</th>
-          <th class="hide-sm">Mucus</th>
-          <th class="hide-sm">Breasts</th>
+          <th>Symptoms</th>
           <th>Quality</th>
           <th>Exc</th>
           <th>Phase</th><th>Note</th>
@@ -2370,9 +2545,7 @@ function drawTimelineChart(cycles) {
           return [
             moon ? `Moon: ${moon.glyph} ${moon.name}` : '',
             phaseTag(r) ? `Phase: ${phaseTag(r)}` : '',
-            r['Cervical Mucus'] ? `Mucus: ${r['Cervical Mucus']}` : '',
-            r['Cervix Texture'] ? `Cervix: ${r['Cervix Texture']}` : '',
-            r.Breasts ? `Breasts: ${r.Breasts}` : '',
+            symptomText(r) ? `Symptoms: ${symptomText(r)}` : '',
             r.Note ? `Note: ${r.Note}` : '',
           ].filter(Boolean);
         },
@@ -2411,10 +2584,7 @@ function buildLogRows(cycle) {
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
       <td class="hide-sm" style="white-space:nowrap">${c('Time')}</td>
       <td>${c('Flow')}</td>
-      <td class="hide-sm">${c('Cervix Texture')}</td>
-      <td class="hide-sm">${c('Cervix Position')}</td>
-      <td class="hide-sm">${c('Cervical Mucus')}</td>
-      <td class="hide-sm">${c('Breasts')}</td>
+      <td class="wrap sym">${escHTML(symptomText(r))}</td>
       <td>${c('Temp Quality')}</td>
       <td>${r.Exclude === 'TRUE' ? 'yes' : ''}</td>
       <td>${cycleTag}</td>
@@ -2761,6 +2931,9 @@ function warn(msg) { _dataWarnings.push(msg); console.warn(msg); }
 // Cycle Start that silently fails to register merges two cycles, which moves
 // the cycle day and therefore the safety window.
 const TRUTHY = new Set(['TRUE', 'YES', 'Y', 'X', '1']);
+// Every yes/no column. The same list as FLAG_COLS in Apps Script/Code.gs;
+// adapter-selfcheck holds it to the app's own flag fields.
+const FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude', 'Acne', 'Cramps', 'Penetration', 'Protected'];
 
 function flag(v, col, date) {
   const s = String(v == null ? '' : v).trim();
@@ -2780,11 +2953,9 @@ function adaptRows(rows) {
     const d = new Date(+m[1], +m[2] - 1, +m[3]);
 
     const row = Object.assign({}, r);
-    // Normalise the three yes/no columns here, once, so no downstream reader
-    // has to guess at a spelling.
-    row['Cycle Start'] = flag(r['Cycle Start'], 'Cycle Start', r.Date);
-    row.Ovulation      = flag(r.Ovulation, 'Ovulation', r.Date);
-    row.Exclude        = flag(r.Exclude, 'Exclude', r.Date);
+    // Normalise the yes/no columns here, once, so no downstream reader has to
+    // guess at a spelling.
+    for (const c of FLAG_COLS) row[c] = flag(r[c], c, r.Date);
     // A day marked both is BOTH, now that the rules read the two columns
     // independently: it anchors the safe window and counts in the opening bleed
     // run, while the log table shows only "Ovulation". Say so rather than let

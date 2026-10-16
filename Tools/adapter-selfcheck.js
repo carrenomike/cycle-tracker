@@ -61,11 +61,42 @@ if (JSON.stringify(got) !== JSON.stringify(want)) {
 const { NEW_COLS } = require('./migrate-sheet.js');
 const hasDataBody = /function hasData\(r\) \{([\s\S]*?)\n\}/.exec(src);
 if (!hasDataBody) { console.error('\nFAIL  could not find hasData() in index.html'); process.exit(1); }
-const missing = NEW_COLS.filter(c => c !== 'Date' && !hasDataBody[1].includes(c));
+// The Log writes columns the migration never had (the Symptoms picker's six), so
+// every column ENTRY_FIELDS names counts too.
+const e1 = src.indexOf('// >>> ENTRY'), e2 = src.indexOf('// <<< ENTRY');
+const entry = new Function(`${src.slice(e1, e2)}; return ENTRY_FIELDS;`)();
+const loggable = [...new Set([...NEW_COLS.filter(c => c !== 'Date'), ...entry.map(f => f.col)])];
+const missing = loggable.filter(c => !hasDataBody[1].includes(c));
 if (missing.length) {
   console.error(`\nFAIL  hasData() does not count: ${missing.join(', ')} — those days would render as empty`);
   process.exit(1);
 }
-console.log(`hasData covers all ${NEW_COLS.length - 1} loggable columns`);
+console.log(`hasData covers all ${loggable.length} loggable columns`);
+
+// Every yes/no the Log writes is read back as one, or a hand-typed "yes" in the
+// sheet would show as unticked.
+const flagCols = new Function(`${src.slice(a, b)}; return FLAG_COLS;`)();
+const unread = entry.filter(f => f.type === 'flag' && flagCols.indexOf(f.col) < 0).map(f => f.col);
+if (unread.length) {
+  console.error(`\nFAIL  FLAG_COLS does not read: ${unread.join(', ')}`);
+  process.exit(1);
+}
+console.log('FLAG_COLS reads every yes/no the Log writes');
+
+// The server side of the same lists: Code.gs writes a yes/no as a real checkbox
+// value, and free text as text (so "=anxious" is never run as a formula).
+const gs = fs.readFileSync(path.join(__dirname, '..', 'Apps Script', 'Code.gs'), 'utf8');
+const gsList = name => JSON.parse((new RegExp(`var ${name} = (\\[[^\\]]*\\]);`).exec(gs) || [, 'null'])[1]
+  .replace(/'/g, '"'));
+const gsFlags = gsList('FLAG_COLS'), gsText = gsList('TEXT_COLS');
+const gsMiss = [
+  ...entry.filter(f => f.type === 'flag' && !(gsFlags || []).includes(f.col)).map(f => `${f.col} (FLAG_COLS)`),
+  ...entry.filter(f => ['text', 'mood'].includes(f.type) && !(gsText || []).includes(f.col)).map(f => `${f.col} (TEXT_COLS)`),
+];
+if (gsMiss.length) {
+  console.error(`\nFAIL  Apps Script/Code.gs is missing: ${gsMiss.join(', ')}`);
+  process.exit(1);
+}
+console.log('Code.gs writes every yes/no as a checkbox and every free-text field as text');
 
 console.log('\nadapter self-check: PASS');

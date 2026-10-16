@@ -18,7 +18,8 @@ if (a < 0 || b < 0) throw new Error('Could not find the ENTRY markers in index.h
 const E = new Function(
   `${src.slice(a, b)}; return { QUALITY_OPTS, ENTRY_FIELDS, isoOf, isoShift, toSheetTime, fromSheetTime,
      sheetValue, sameTemp, entryDiff, entryProblem, CYCLE_START_LOOKBACK, suggestCycleStart,
-     describeValues, writeErrorText, QUESTIONS, rowForm, draftChanges };`)();
+     describeValues, writeErrorText, ROW_COLS, PICKER_SECTIONS, MOOD_BUILTINS, splitMoods, newMood,
+     rowForm, draftChanges, isFinalWriteError, isRefusal };`)();
 
 let failed = 0;
 const pass = m => console.log(`  ok    ${m}`);
@@ -33,14 +34,15 @@ const same = (actual, expected, what) =>
 const blank = () => {
   const f = {};
   for (const fld of E.ENTRY_FIELDS) {
-    f[fld.col] = fld.type === 'flag' ? false : fld.type === 'quality' ? [] : '';
+    f[fld.col] = fld.type === 'flag' ? false : fld.type === 'quality' || fld.type === 'mood' ? [] : '';
   }
   return f;
 };
 
 console.log('the field list matches the ca2 schema');
-const COLS = ['Temp', 'Time', 'Temp Quality', 'Exclude', 'Flow', 'Cervical Mucus',
-  'Cervix Texture', 'Cervix Position', 'Breasts', 'Ovulation', 'Cycle Start', 'Note'];
+const COLS = ['Temp', 'Time', 'Flow', 'Cervical Mucus', 'Cervix Texture', 'Cervix Position', 'Breasts',
+  'Arousal', 'Acne', 'Cramps', 'Penetration', 'Protected', 'Mood',
+  'Temp Quality', 'Exclude', 'Ovulation', 'Cycle Start', 'Note'];
 same(E.ENTRY_FIELDS.map(f => f.col), COLS, 'every column, and nothing the sheet has no home for');
 // 'Date' is the key the write is addressed to, not a value — the endpoint
 // rejects it outright, so the form must never offer it.
@@ -108,7 +110,7 @@ console.log('\nentryDiff — only what changed leaves the phone');
   const row = { Flow: 'bleeding', Exclude: 'TRUE' };
   const f = blank();
   // Key order follows ENTRY_FIELDS, which is the order the confirmation reads in.
-  same(E.entryDiff(row, f), { Exclude: '', Flow: '' }, 'clearing a field is sent as a clear, not skipped');
+  same(E.entryDiff(row, f), { Flow: '', Exclude: '' }, 'clearing a field is sent as a clear, not skipped');
 }
 is(E.sameTemp('97.9', '97.90'), true,  '97.9 and 97.90 are the same reading');
 is(E.sameTemp('97.9', '97.91'), false, 'a hundredth apart is a change');
@@ -162,15 +164,22 @@ console.log('\nthe review list says what is about to be written (ca4)');
   is(/Exclude: \(cleared\)/.test(t), true, 'a cleared field says so rather than showing blank');
 }
 
-console.log('\none question at a time (ca12)');
+console.log('\nevery field has one place: the day row or the Symptoms panel');
 {
-  const asked = E.QUESTIONS.flatMap(q => q.cols);
-  same(asked.slice().sort(), E.ENTRY_FIELDS.map(f => f.col).sort(),
-    'every field is asked by exactly one question — none missing, none twice');
-  same(E.QUESTIONS.map(q => q.label), ['Temp', 'Flow', 'Mucus', 'Cervix', 'Breasts', 'Flags', 'Note'],
-    'the question buttons, in order');
-  same(E.QUESTIONS.find(q => q.key === 'flags').cols, ['Ovulation', 'Cycle Start'],
-    'Flags is Ovulation and Cycle start only');
+  const placed = E.ROW_COLS.concat(E.PICKER_SECTIONS.flatMap(s => s.cols));
+  same(placed.slice().sort(), E.ENTRY_FIELDS.map(f => f.col).sort(),
+    'every field is on the row or in the panel exactly once — none missing, none twice');
+  same(E.ROW_COLS, ['Temp', 'Time'], 'the row holds temp and time only');
+  same(E.PICKER_SECTIONS.map(s => s.label),
+    ['Flow', 'Mucus', 'Cervix', 'Breasts', 'Arousal', 'Yes / no', 'Mood', 'Reading quality', 'Markers', 'Note'],
+    'the panel sections, in the spec\'s order');
+  same(E.PICKER_SECTIONS.find(s => s.label === 'Yes / no').cols, ['Acne', 'Cramps', 'Penetration', 'Protected'],
+    'the yes/no section');
+  const arousal = E.ENTRY_FIELDS.find(f => f.col === 'Arousal');
+  same(arousal.labels, ['none', 'low', 'med', 'high'], 'Arousal is none / low / med / high');
+  for (const c of ['Acne', 'Cramps', 'Penetration', 'Protected']) {
+    is(E.ENTRY_FIELDS.find(f => f.col === c).type, 'flag', `${c} is a yes/no`);
+  }
 
   // A draft holds only what Mike touched, and is diffed against the row as it
   // is at save time.
@@ -187,6 +196,41 @@ console.log('\none question at a time (ca12)');
     'both quality marks read back');
   is(E.rowForm({ Time: '7:05 AM' }).Time, '07:05', "the time reads back in the box's spelling");
 }
+
+console.log('\nMood — a comma list in one cell, and "+ add"');
+{
+  const mood = E.ENTRY_FIELDS.find(f => f.col === 'Mood');
+  same(E.MOOD_BUILTINS, ['happy', 'calm', 'sad', 'anxious', 'irritable', 'angry', 'teary', 'low'], 'the built-in moods');
+  same(E.rowForm({ Mood: 'Anxious, irritable,, anxious ' }).Mood, ['anxious', 'irritable'],
+    'a hand-typed cell reads back lowercase, without blanks or repeats');
+  is(E.sheetValue(mood, ['anxious', 'irritable']), 'anxious, irritable', 'two moods are written as one comma list');
+  same(E.draftChanges({ Mood: 'irritable,anxious' }, { Mood: ['anxious', 'irritable'] }), {},
+    'the same moods in another order is not a change');
+  same(E.draftChanges({ Mood: 'anxious' }, { Mood: [] }), { Mood: '' }, 'unpicking the last mood clears the cell');
+  same(E.newMood('  Restless ', E.MOOD_BUILTINS), { mood: 'restless' }, 'an added mood is trimmed and lowercased');
+  is(!!E.newMood('tired, sad', E.MOOD_BUILTINS).problem, true, 'a comma is refused, not split or stripped');
+  is(!!E.newMood('Calm', E.MOOD_BUILTINS).problem, true, 'a mood that is already an option is refused');
+  is(!!E.newMood('restless', E.MOOD_BUILTINS.concat('restless')).problem, true,
+    'so is one found in the sheet');
+  is(!!E.newMood('   ', E.MOOD_BUILTINS).problem, true, 'an empty box adds nothing');
+}
+
+console.log('\nProtected never without Penetration');
+{
+  const f = Object.assign(blank(), { Protected: true });
+  is(!!E.entryProblem(null, f), true, 'a new Protected without Penetration is refused');
+  is(E.entryProblem(null, Object.assign(blank(), { Protected: true, Penetration: true })), null,
+    'with Penetration it is fine');
+  is(E.entryProblem({ Protected: 'TRUE' }, f), null,
+    'a sheet row that already holds it is left as it is, so the rest of that day can still be saved');
+}
+
+console.log('\na missing sheet column is not queued');
+is(E.isFinalWriteError('unknown-column: Mood'), true, 'unknown-column is final — retrying cannot fix it');
+is(E.isFinalWriteError('bad-request: no values'), true, 'so is bad-request');
+is(E.isFinalWriteError('busy: another write is still running'), false, 'busy is worth retrying');
+is(E.isFinalWriteError('write-failed: boom'), false, 'so is a failed write');
+is(E.isRefusal('unknown-column: Mood'), false, 'and it is not a refusal: the role is not forgotten over it');
 
 console.log('\nwrite errors are spoken out loud, never swallowed');
 is(E.writeErrorText('read-only').length > 10, true, 'a rejected reader token gets a real sentence');

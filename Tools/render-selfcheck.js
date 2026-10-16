@@ -16,6 +16,9 @@
 
 const { NEW_COLS } = require('./migrate-sheet.js');
 const { bootPage, makeStore } = require('./page-harness.js');
+// The Symptoms picker's six columns were added by hand, after the migration
+// (Apps Script/SETUP.md §8), so the fixtures carry them on top of NEW_COLS.
+const COLS = [...NEW_COLS, 'Arousal', 'Acne', 'Cramps', 'Penetration', 'Protected', 'Mood'];
 
 // The stub browser lives in page-harness.js so the queue self-check can boot the
 // same page the same way — twice over, which is how a reload is tested.
@@ -23,7 +26,7 @@ const EXPOSE =
   `{ renderPayload, buildLogRows, splitCycles, adaptRows, safetyVerdict,
      setProvisional: v => { _provisional = v; },
      setScreen: (tab, role) => { _tab = tab; _role = role; },
-     typeField, pickOption, setQuestion, saveAll, openReview, getDrafts: () => _drafts,
+     typeField, pickOption, toggleFlag, toggleMood, addMood, openPicker, closePicker, saveAll, openReview, getDrafts: () => _drafts,
      clearDrafts: () => { _drafts = new Map(); _suggested = new Set(); _logNote = null; _reviewing = false; },
      setQueue: (entries, note) => { _queue = entries; _queueNote = note || null; },
      queueBannerHTML, failLoad, switchTab, rememberRole,
@@ -42,13 +45,13 @@ const daysAgo = n => { const d = new Date(); d.setDate(d.getDate() - n); return 
 // [days before today, temp, flow, cycleStart, ovulation]
 const spec = (back, Temp, Flow, start, ov) => {
   const r = {};
-  NEW_COLS.forEach(c => { r[c] = ''; });
+  COLS.forEach(c => { r[c] = ''; });
   r.Date = iso(daysAgo(back));
   r.Temp = Temp == null ? '' : String(Temp);
   r.Flow = Flow || '';
   r['Cycle Start'] = start ? 'TRUE' : '';
   r.Ovulation = ov ? 'TRUE' : '';
-  return NEW_COLS.map(c => r[c]);
+  return COLS.map(c => r[c]);
 };
 
 // A completed cycle, then a current one with a marker and a three-day gap at
@@ -68,7 +71,7 @@ const pass = m => console.log(`  ok    ${m}`);
 const fail = m => { failed++; console.log(`  FAIL  ${m}`); };
 const renders = (rows, what) => {
   app.innerHTML = '';
-  try { api.renderPayload(NEW_COLS, rows); }
+  try { api.renderPayload(COLS, rows); }
   catch (e) { fail(`${what} — render threw: ${e.message}`); return ''; }
   pass(`${what} — render ran clean`);
   return app.innerHTML;
@@ -127,7 +130,7 @@ console.log('\n--- A CYCLE WITH NO MARKER ---');
 
 console.log('\n--- THE LOG TABLE FOR EVERY CYCLE ---');
 {
-  const objs = withMarker.map(cells => Object.fromEntries(NEW_COLS.map((c, i) => [c, cells[i]])));
+  const objs = withMarker.map(cells => Object.fromEntries(COLS.map((c, i) => [c, cells[i]])));
   const cycles = api.splitCycles(api.adaptRows(objs).filter(r => r.Day));
   try {
     cycles.forEach(c => api.buildLogRows(c));
@@ -138,55 +141,138 @@ console.log('\n--- THE LOG TABLE FOR EVERY CYCLE ---');
 console.log('\n--- THE LOG EXIT (writer only) ---');
 {
   // ca5 gave render() a second exit the dashboard half never reaches — exactly
-  // the shape of the ca4 bug: a path every self-check skipped. Render it under
-  // each question, with and without changes, then render the dashboard again;
+  // the shape of the ca4 bug: a path every self-check skipped. Render it with the
+  // panel shut and open, with and without changes, then render the dashboard again;
   // the round trip is what rebuilds the charts.
   api.setScreen('log', 'writer');
   // Two rows inside the 14 days on screen: one with every field filled, and one
   // holding what a migrated row can hold that this app never offers.
-  const row = (back, vals) => NEW_COLS.map(c => c === 'Date' ? iso(daysAgo(back)) : (vals[c] || ''));
+  const row = (back, vals) => COLS.map(c => c === 'Date' ? iso(daysAgo(back)) : (vals[c] || ''));
   const FULL = { Temp: '97.8', Time: '7:05 AM', 'Temp Quality': 'off-time', Exclude: 'TRUE',
     Flow: 'spotting', 'Cervical Mucus': 'Creamy', 'Cervix Texture': 'soft', 'Cervix Position': 'high',
-    Breasts: 'sore', Ovulation: 'TRUE', 'Cycle Start': 'TRUE', Note: 'tired' };
+    Breasts: 'sore', Arousal: 'med', Acne: 'TRUE', Cramps: 'TRUE', Penetration: 'TRUE', Protected: 'TRUE',
+    Mood: 'anxious, Restless', Ovulation: 'TRUE', 'Cycle Start': 'TRUE', Note: 'tired' };
   const AWKWARD = { 'Cervical Mucus': 'Lotiony', Ovulation: 'TRUE', Note: 'she said "fine" & left' };
   const rows = [...withMarker, row(2, FULL), row(1, AWKWARD)];
   const d0 = iso(daysAgo(0)), d1 = iso(daysAgo(1)), d2 = iso(daysAgo(2));
-  const summaryOf = (html, day) => ((html.match(new RegExp(`id="sum-${day}">([\\s\\S]*?)</span>\\s*</div>`)) || [])[1] || '');
+  const summaryOf = (html, day) =>
+    ((html.match(new RegExp(`id="sum-${day}">([\\s\\S]*?)</div>\\s*<div class="day-problem"`)) || [])[1] || '');
+  const pickerOf = html => (html.split('id="pickerBody"')[1] || '').split('class="pk-foot"')[0];
 
   const closed = renders(rows, 'the log tab');
-  has(closed, "setQuestion('flags')", 'the question bar is drawn');
+  /setQuestion|class="qbar"/.test(closed) ? fail('the question bar is still drawn') : pass('there is no question bar');
   has(closed, 'day-card', 'there are day cards');
-  has(closed, "typeField('" + d0 + "','Temp'", 'every day gets the Temp question by default');
+  has(closed, "typeField('" + d0 + "','Temp'", 'every day has a Temp box');
+  has(closed, "typeField('" + d0 + "','Time'", 'and a Time box');
+  has(closed, "openPicker('" + d0 + "')", 'and a Symptoms button');
+  /role="dialog"/.test(closed) ? fail('the panel was open before anything was tapped') : pass('the panel starts closed');
   has(closed, 'Show 14 more days', 'the show-more button is drawn');
   /chartTimeline|Cycle Day/.test(closed)
     ? fail('dashboard markup leaked into the log screen')
     : pass('no dashboard markup leaks into the log screen');
 
-  // Only the question being asked has controls; everything else has to be in
-  // the summary line, or a day would look blank for the fields not on screen.
+  // Only temp and time have boxes on the row; everything else has to be in the
+  // line under it, or a day would look blank for what the panel holds.
   const full = summaryOf(closed, d2);
-  const WANT = ['97.80° at 7:05 AM', 'off-time', 'excluded', 'spotting', 'mucus creamy',
-                'cervix soft, high', 'breasts sore', 'ovulation', 'day 1', 'note: tired'];
+  const WANT = ['spotting', 'sore breasts', 'creamy mucus', 'cervix soft high', 'arousal med', 'acne',
+                'cramps', 'penetration', 'protected', 'mood anxious, restless', 'off-time', 'excluded',
+                'ovulation', 'day 1', 'note: tired'];
   const missing = WANT.filter(w => !full.includes(w));
-  missing.length ? fail(`the summary line left out ${missing.join(', ')}: ${full}`)
-                 : pass('every field on a logged day is in its summary line');
+  missing.length ? fail(`the row line left out ${missing.join(', ')}: ${full}`)
+                 : pass('every field on a logged day is in its row line');
+  /97\.8|7:05/.test(full) ? fail('the row line repeats the temp or time the boxes already show')
+                          : pass('and not the temp or time, which have boxes');
   is_(summaryOf(closed, d0), 'not logged', 'an unlogged day says so');
 
-  // Target 7: an unknown sheet value is shown, selected, and not rewritten.
-  api.setQuestion('mucus');
-  const mucus = renders(rows, 'the mucus question');
-  /class="opt on"[^>]*>Lotiony \(already in the sheet\)/.test(mucus)
+  // Every field the panel promises is a control in it.
+  api.openPicker(d2);
+  const pk = app.innerHTML;
+  has(pk, 'role="dialog"', 'Symptoms opens the panel');
+  has(pk, 'class="picker pk-open"', 'sliding up the first time it is drawn');
+  const body = pickerOf(pk);
+  const REACH = [`pickOption('${d2}','Flow'`, `pickOption('${d2}','Cervical Mucus'`,
+    `pickOption('${d2}','Cervix Texture'`, `pickOption('${d2}','Cervix Position'`, `pickOption('${d2}','Breasts'`,
+    `pickOption('${d2}','Arousal'`, `toggleFlag('${d2}','Acne')`, `toggleFlag('${d2}','Cramps')`,
+    `toggleFlag('${d2}','Penetration')`, `toggleFlag('${d2}','Protected')`, `toggleMood('${d2}',`,
+    `addMood('${d2}'`, `toggleQuality('${d2}',`, `toggleFlag('${d2}','Exclude')`,
+    `toggleFlag('${d2}','Ovulation')`, `toggleFlag('${d2}','Cycle Start')`, `typeField('${d2}','Note'`];
+  const unreached = REACH.filter(r => !body.includes(r));
+  unreached.length ? fail(`the panel cannot reach: ${unreached.join(' | ')}`)
+                   : pass('every field but temp and time can be set from the panel');
+  has(body, '>restless</button>', "a mood only this row's sheet cell holds is offered");
+  has(pk, 'closePicker()', 'with a Done button');
+  api.toggleFlag(d2, 'Acne');
+  /class="picker pk-open"/.test(app.innerHTML)
+    ? fail('the panel slid up again on a tap inside it') : pass('a tap inside does not replay the slide-up');
+  has(summaryOf(app.innerHTML, d2), 'acne cleared', 'every tap is a change straight away, shown on the row');
+  api.closePicker();
+  /role="dialog"/.test(app.innerHTML) ? fail('Done left the panel open') : pass('Done closes it');
+  JSON.stringify([...api.getDrafts().keys()]) === JSON.stringify([d2])
+    ? pass('and closing keeps the change — Discard is the undo') : fail('closing the panel lost the change');
+  api.clearDrafts();
+
+  // An unknown sheet value is shown, selected, and not rewritten.
+  api.openPicker(d1);
+  /class="opt on"[^>]*>Lotiony \(already in the sheet\)/.test(app.innerHTML)
     ? pass('a mucus value the option list does not know is shown, and selected')
     : fail('an unknown mucus value was not preserved');
 
-  // A draft survives moving between questions, and only what was touched goes.
-  api.setQuestion('temp');
+  // Protected waits for Penetration, and goes with it.
+  /<button class="opt"[^>]*toggleFlag\('[^']*','Protected'\)" disabled>/.test(app.innerHTML)
+    ? pass('Protected is greyed out without Penetration') : fail('Protected can be ticked without Penetration');
+  api.toggleFlag(d1, 'Protected');
+  is_(api.getDrafts().has(d1), false, 'and tapping it anyway does nothing');
+  api.toggleFlag(d1, 'Penetration');
+  api.toggleFlag(d1, 'Protected');
+  /disabled>Protected/.test(app.innerHTML) ? fail('Protected stayed greyed out with Penetration ticked')
+                                           : pass('ticking Penetration lets Protected be ticked');
+  api.toggleFlag(d1, 'Penetration');
+  /class="opt on[^"]*"[^>]*toggleFlag\('[^']*','Protected'\)/.test(app.innerHTML) || api.getDrafts().has(d1)
+    ? fail('unticking Penetration left Protected ticked') : pass('unticking Penetration unticks Protected');
+  api.clearDrafts();
+  api.closePicker();
+
+  // An old row with Protected but not Penetration is shown as it is.
+  const ODD = [...rows.slice(0, -1), row(1, { Protected: 'TRUE' })];
+  renders(ODD, 'a row that already holds Protected alone');
+  api.openPicker(d1);
+  /class="opt on"[^>]*toggleFlag\('[^']*','Protected'\)">Protected/.test(app.innerHTML)
+    ? pass('it shows ticked, and can be unticked') : fail('an existing lone Protected was hidden or locked');
+  api.closePicker();
+
+  // "+ add": lowercase, no comma, no repeats — and remembered only by the sheet.
+  renders(rows, 'the log tab again');
+  api.openPicker(d0);
+  has(String(api.addMood(d0, 'tired, sad')), 'cannot have a comma', 'a comma is refused in words');
+  is_(api.getDrafts().has(d0), false, 'and nothing is added');
+  has([api.addMood(d0, 'Restless') || ''].join(''), 'already one of the moods',
+      'one the sheet already holds is refused, whatever its case');
+  is_(api.addMood(d0, '  Wired '), null, 'a new one is accepted');
+  is_(JSON.stringify(api.getDrafts().get(d0).Mood), '["wired"]', 'lowercased, trimmed and picked for the day');
+  has(pickerOf(app.innerHTML), '>wired</button>', 'and offered as a button');
+  api.closePicker();
+  api.clearDrafts();
+  renders(rows, 'the log tab after Discard');
+  api.openPicker(d0);
+  /<\/button>[^<]*wired|>wired</.test(pickerOf(app.innerHTML))
+    ? fail('an unsaved mood outlived its change — the app kept a list of its own')
+    : pass('an unsaved mood goes with the change: no list but the sheet');
+  api.closePicker();
+  const SAVED = [...rows.slice(0, -1), row(1, Object.assign({}, AWKWARD, { Mood: 'wired' }))];
+  renders(SAVED, 'the sheet as read back after saving it');
+  api.openPicker(d0);
+  has(pickerOf(app.innerHTML), '>wired</button>', 'once in the sheet, it comes back on every day after a reload');
+  api.closePicker();
+
+  // A draft survives redraws, and only what was touched goes.
+  renders(rows, 'the log tab once more');
   api.typeField(d1, 'Temp', '98.1');
-  api.setQuestion('flow');
+  api.openPicker(d1);
+  api.closePicker();
   const after = app.innerHTML;
   JSON.stringify([...api.getDrafts().keys()]) === JSON.stringify([d1])
-    ? pass('switching question keeps the typed temp') : fail('switching question lost the draft');
-  has(summaryOf(after, d1), '<b class="chg">98.10°</b>', 'and the summary shows it as a change');
+    ? pass('opening and closing the panel keeps the typed temp') : fail('the panel lost the draft');
+  has(after, 'class="fld chg"', 'and the Temp box shows it as a change');
   has(after, '1 day changed', 'the save bar counts it');
   api.openReview();
   const review = api._el('saveBar').innerHTML;
@@ -198,26 +284,39 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   // ca6a: quotes inside an attribute value and inside a textarea.
   api.clearDrafts();
   api.typeField(d0, 'Temp', '9"8');
-  api.setQuestion('temp');
   has(renders(rows, 'a typed quote'), 'value="9&quot;8"', 'a quote in a value stays inside the attribute');
-  api.setQuestion('note');
-  has(renders(rows, 'the note question'), 'she said &quot;fine&quot; &amp; left',
-      'and quotes and ampersands survive in the note box');
+  api.openPicker(d1);
+  has(app.innerHTML, 'she said &quot;fine&quot; &amp; left', 'and quotes and ampersands survive in the note box');
+  api.closePicker();
 
   // A suggested Day 1 must say so everywhere Mike reads before it is saved.
   api.clearDrafts();
-  api.setQuestion('flow');
   api.pickOption(d0, 'Flow', 2);   // bleeding, after days with none
   const sug = app.innerHTML;
   has(summaryOf(sug, d0), 'day 1 (suggested)', 'bleeding after a clear stretch suggests Day 1, marked as such');
+  api.openPicker(d0);
+  has(app.innerHTML, '(Day 1) (suggested)', 'and the panel says so on the Day 1 button');
+  api.closePicker();
   api.openReview();
   has(api._el('saveBar').innerHTML, 'Cycle Start: TRUE — day 1 (suggested)', 'and the review list says so too');
   api.clearDrafts();
 
+  // The dashboard: four columns became one, and the tooltip reads the same.
+  api.setScreen('dashboard', 'writer');
+  // A day inside the current cycle, so it is in the Daily Log on screen.
+  const dash = renders([...withMarker, row(14, Object.assign({}, FULL, { 'Cycle Start': '' }))],
+    'the dashboard with symptoms logged');
+  has(dash, '<th>Symptoms</th>', 'the Daily Log has a Symptoms column');
+  /<th[^>]*>(Cervix|Pos|Mucus|Breasts)<\/th>/.test(dash)
+    ? fail('the old Cervix / Pos / Mucus / Breasts columns are still there') : pass('in place of Cervix, Pos, Mucus and Breasts');
+  has(dash, '<td class="wrap sym">sore breasts, creamy mucus, cervix soft high, arousal med, acne, cramps, ' +
+    'penetration, protected, mood anxious, restless</td>', 'listing every symptom the day holds');
+  api.setScreen('log', 'writer');
+
   // Tirzah never gets any of it, whatever _tab says.
   api.setScreen('log', 'reader');
   const rd = renders(rows, 'the log tab as the reader');
-  /setQuestion|typeField|save-bar/.test(rd)
+  /openPicker|typeField|save-bar/.test(rd)
     ? fail('the reader was shown the Log screen') : pass('the reader gets no Log screen');
 
   // Back to the dashboard: the charts the log exit destroyed have to come back.
@@ -290,7 +389,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     const noChart = bootPage({ env: { Chart: undefined }, expose: EXPOSE });
     const el = noChart._el('app');
     try {
-      noChart.renderPayload(NEW_COLS, withMarker);
+      noChart.renderPayload(COLS, withMarker);
       pass('the dashboard renders with no charting library');
     } catch (e) { fail(`Chart.js missing threw the whole render: ${e.message}`); }
     has(el.innerHTML, 'Safe Sex Status', 'and the safety card — the part that matters — is on it');
@@ -312,7 +411,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
       expose: EXPOSE,
     });
     // One successful live read, exactly as the phone would have had at home...
-    cold.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    cold.sheetCallback({ ok: true, role: 'writer', cols: COLS, rows: withMarker });
     // ...and then ca7 or ca6 drops the display cache to make room, which is the
     // whole reason the role needs a key of its own.
     store.removeItem('cycleCache');
@@ -325,7 +424,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     has(app.innerHTML, "switchTab('log')", 'and still offers the Log tab');
 
     again.switchTab('log');
-    has(app.innerHTML, 'setQuestion(', 'the Log tab opens with no cycle data at all');
+    has(app.innerHTML, 'openPicker(', 'the Log tab opens with no cycle data at all');
     has(app.innerHTML, 'not logged', 'every day in the catch-up list is unlogged, which is true');
     /&middot; Day \d/.test(app.innerHTML)
       ? fail('a cycle day was printed with no cycle data to derive it from')
@@ -345,11 +444,11 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     const rstore = makeStore();
     rstore.setItem('cycleToken', 'reader-token');
     const r1 = bootPage({ store: rstore, expose: EXPOSE });
-    r1.sheetCallback({ ok: true, role: 'reader', cols: NEW_COLS, rows: withMarker });
+    r1.sheetCallback({ ok: true, role: 'reader', cols: COLS, rows: withMarker });
     rstore.removeItem('cycleCache');
     const reader = bootPage({ store: rstore, expose: EXPOSE });
     reader.failLoad('offline');
-    /switchTab|setQuestion/.test(reader._el('app').innerHTML)
+    /switchTab|openPicker/.test(reader._el('app').innerHTML)
       ? fail('the reader was offered the Log tab on the offline screen')
       : pass('the reader gets no tab bar and no entry form');
   }
@@ -362,7 +461,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     const store = makeStore();
     store.setItem('cycleToken', 'writer-token');
     const a = bootPage({ store, expose: EXPOSE });
-    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    a.sheetCallback({ ok: true, role: 'writer', cols: COLS, rows: withMarker });
     const cached = JSON.parse(store.getItem('cycleCache'));
     cached.role = null;
     store.setItem('cycleCache', JSON.stringify(cached));
@@ -382,7 +481,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     b.switchTab('log');
     b.sheetCallback({ ok: false, error: 'no-access' });
     has(b._el('app').innerHTML, 'This link is not valid any more.', 'the refusal is what is on screen');
-    /setQuestion/.test(b._el('app').innerHTML)
+    /openPicker/.test(b._el('app').innerHTML)
       ? fail('the entry form was drawn over a rejected link')
       : pass('the entry form is not drawn over a rejected link');
     is_(b.getRole(), null, 'and the remembered writer role is forgotten');
@@ -400,7 +499,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     store.setItem('cycleQueue', JSON.stringify({
       entries: [{ iso: '2026-09-01', values: { Temp: '97.50' }, tries: 1 }], note: null }));
     const a = bootPage({ store, expose: EXPOSE });
-    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    a.sheetCallback({ ok: true, role: 'writer', cols: COLS, rows: withMarker });
     is_(a.stored('cycleRole') !== null, true, 'the writer link remembered its role');
     is_(a.stored('cycleCache') !== null, true, 'and saved a copy of the dashboard');
 
@@ -417,7 +516,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     const s2 = makeStore();
     s2.setItem('cycleToken', 'writer-token');
     const b = bootPage({ store: s2, expose: EXPOSE });
-    b.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    b.sheetCallback({ ok: true, role: 'writer', cols: COLS, rows: withMarker });
     const again2 = bootPage({ store: s2, env: atHash('writer-token'), expose: EXPOSE });
     is_(again2.getRole(), 'writer', 're-opening the SAME link keeps the role');
     is_(again2.stored('cycleCache') !== null, true, 'and the saved dashboard');
@@ -431,7 +530,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
     const store = makeStore();
     store.setItem('cycleToken', 'a-token');
     const a = bootPage({ store, expose: EXPOSE });
-    a.sheetCallback({ ok: true, role: 'writer', cols: NEW_COLS, rows: withMarker });
+    a.sheetCallback({ ok: true, role: 'writer', cols: COLS, rows: withMarker });
 
     const b = bootPage({
       store,

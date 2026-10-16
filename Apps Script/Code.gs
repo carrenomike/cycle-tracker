@@ -171,7 +171,7 @@ function doPost(e) {
 // Flags are written as the boolean a ticked checkbox holds, not the string
 // 'TRUE' — the columns carry checkboxes and a string would sit in them as an
 // invalid value. cell() flattens the boolean back to 'TRUE' on the way out.
-var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude'];
+var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude', 'Acne', 'Cramps', 'Penetration', 'Protected'];
 
 // setValues() enters a string the way a person typing it would, so Sheets parses
 // it: a Note of '=1+1' becomes a formula and the text is lost (the live ca5a
@@ -189,11 +189,12 @@ var FLAG_COLS = ['Cycle Start', 'Ovulation', 'Exclude'];
 // → Google Sheets API). If it is off, the reply says so rather than quietly
 // storing a formula — see textNotStored below.
 //
-// Note is the only free-text column — every other column the app writes is a
-// flag, a number, a time, or one of a fixed list — and it is the only one whose
-// parsing we have to switch off. Temp and Time rely on that same parsing to land
-// as a number and a time, so this must stay a list, not a blanket.
-var TEXT_COLS = ['Note'];
+// Note and Mood are the free-text columns — Mood because Mike can add his own
+// moods, so a '=' at the start of one is his typing, not a formula. Every other
+// column the app writes is a flag, a number, a time, or one of a fixed list.
+// Temp and Time rely on that same parsing to land as a number and a time, so
+// this must stay a list, not a blanket.
+var TEXT_COLS = ['Note', 'Mood'];
 
 // 0-based column index to an A1 letter: 0 -> A, 25 -> Z, 26 -> AA.
 function a1Col(i) {

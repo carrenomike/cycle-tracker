@@ -370,8 +370,9 @@ function splitCycles(rows) {
     for (const [what, body, expected] of [
       ['a malformed date', { t: writerToken, date: '24/03/2026', values: { Temp: '97.11' } },
        'bad-request: date must be YYYY-MM-DD'],
-      ['a column the sheet does not have', { t: writerToken, date: SENTINEL, values: { Mood: 'fine' } },
-       'unknown-column: Mood'],
+      // Not Mood any more: the Symptoms panel added it to the sheet (2026-10).
+      ['a column the sheet does not have', { t: writerToken, date: SENTINEL, values: { NotAColumn: 'fine' } },
+       'unknown-column: NotAColumn'],
       ['Date sent as a value', { t: writerToken, date: SENTINEL, values: { Date: '2026-01-01' } },
        'bad-request: Date is the key, not a value'],
     ]) {
@@ -427,28 +428,47 @@ function splitCycles(rows) {
     //     carries a checkbox, and a Note starting with '=' was stored as a
     //     formula and came back as its result. Neither is reachable from the
     //     offline checks — both need the real sheet.
+    //     The Symptoms panel (2026-10) added four more checkbox columns and a
+    //     second free-text one: Mood, where Mike types his own moods.
     const fl = await post(url, { t: writerToken, date: SENTINEL,
-      values: { Ovulation: 'TRUE', Exclude: 'TRUE', Note: '=1+1' } });
-    wrote(fl, 'updated', 'the flags and the formula-shaped note were written');
+      values: { Ovulation: 'TRUE', Exclude: 'TRUE', Note: '=1+1',
+                Acne: 'TRUE', Cramps: 'TRUE', Penetration: 'TRUE', Protected: 'TRUE',
+                Arousal: 'med', Mood: '=anxious' } });
+    wrote(fl, 'updated', 'the flags, the formula-shaped note and the symptoms were written');
     await pause();
     got = sentinelRow(await rowsAt(writerToken));
     if (got.length === 1) {
       is(got[0].Ovulation, 'TRUE', 'a ticked Ovulation reads back as TRUE');
       is(got[0].Exclude, 'TRUE', 'a ticked Exclude reads back as TRUE');
       is(got[0].Note, '=1+1', 'a note starting with = survived as text, not as 2');
+      for (const c of ['Acne', 'Cramps', 'Penetration', 'Protected']) is(got[0][c], 'TRUE', `a ticked ${c} reads back as TRUE`);
+      is(got[0].Arousal, 'med', 'Arousal landed');
+      is(got[0].Mood, '=anxious', 'a mood starting with = survived as text, not as a formula');
     }
 
-    const unfl = await post(url, { t: writerToken, date: SENTINEL, values: { Ovulation: '', Exclude: '' } });
+    const unfl = await post(url, { t: writerToken, date: SENTINEL, values: {
+      Ovulation: '', Exclude: '', Acne: '', Cramps: '', Penetration: '', Protected: '' } });
     wrote(unfl, 'updated', 'unticking the flags was accepted');
     await pause();
     got = sentinelRow(await rowsAt(writerToken));
     if (got.length === 1) {
       is(got[0].Ovulation, '', 'an unticked Ovulation reads back blank');
       is(got[0].Exclude, '', 'an unticked Exclude reads back blank');
+      for (const c of ['Acne', 'Cramps', 'Penetration', 'Protected']) is(got[0][c], '', `an unticked ${c} reads back blank`);
       is(got[0].Temp, '97.22', 'the temperature was not disturbed by the flag writes');
-      // The write above never mentioned Note, but read-patch-write re-enters the
-      // whole row — so this is the check that the cell stayed plain text.
+      // The write above never mentioned Note or Mood, but read-patch-write
+      // re-enters the whole row — so this is the check that both stayed text.
       is(got[0].Note, '=1+1', 'the formula-shaped note survived a save that never mentioned it');
+      is(got[0].Mood, '=anxious', 'the formula-shaped mood survived a save that never mentioned it');
+    }
+
+    const md = await post(url, { t: writerToken, date: SENTINEL, values: { Mood: 'anxious, irritable', Arousal: '' } });
+    wrote(md, 'updated', 'a two-mood list was written');
+    await pause();
+    got = sentinelRow(await rowsAt(writerToken));
+    if (got.length === 1) {
+      is(got[0].Mood, 'anxious, irritable', 'the mood list reads back as written');
+      is(got[0].Arousal, '', 'a cleared Arousal reads back blank');
     }
 
     // 3. Cleanup. There is no delete in the app — it exists so this check can

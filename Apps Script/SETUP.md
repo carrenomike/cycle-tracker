@@ -115,3 +115,26 @@ Only after step 5 passes and both phones have loaded: open the **old** sheet →
 Share → set General access to **Restricted**. Keep the sheet; it is the
 keepsake. Its ID has been public since the first commit, so leaving it readable
 leaves the whole history readable.
+
+## 8. Add the Symptoms columns (once, before using the Symptoms panel)
+
+The Log screen's Symptoms panel saves six fields the sheet did not have before.
+Do these in order, **before** saving any of them from the app:
+
+1. Open the sheet. In the header row (row 1), after the last column, add these
+   six headers, spelled exactly like this:
+   `Arousal`, `Acne`, `Cramps`, `Penetration`, `Protected`, `Mood`.
+   The order does not matter; the spelling and capitals do.
+2. Select the cells under `Acne`, `Cramps`, `Penetration` and `Protected` (the
+   whole columns, below the header) → Insert → **Checkbox**. Leave `Arousal`
+   and `Mood` as plain cells.
+3. Open the Apps Script editor, paste in this folder's `Code.gs`, and put the
+   three secrets back (see the warning in step 3).
+4. **Deploy → Manage deployments → edit → New version.** Saving alone changes
+   nothing that is live.
+5. Run `verify.bat` and wait for **All checks passed**. It writes and clears
+   the new columns on the 2026-03-24 test row.
+
+If a header is missing or misspelled, the app does not lose the day: the save
+bar says **NOT saved — unknown-column: …**, the change stays on screen, and the
+other days still save. Fix the header, then save again.

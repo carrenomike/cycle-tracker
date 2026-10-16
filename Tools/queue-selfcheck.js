@@ -77,6 +77,14 @@ q = Q.queueMerge(q, '2026-09-08', { Temp: '97.10' }, NOW + 7000);
 same(q.map(e => e.iso), ['2026-09-08', '2026-09-10'], 'entries stay in date order');
 is(q[1].values.Flow, 'bleeding', 'merging another day leaves the first alone');
 
+{
+  // Penetration and Protected sent apart can merge into Protected alone; the
+  // untick has to take Protected with it here too, not only on screen.
+  let pq = Q.queueMerge([], '2026-09-12', { Penetration: 'TRUE', Protected: 'TRUE' }, NOW);
+  pq = Q.queueMerge(pq, '2026-09-12', { Penetration: '' }, NOW + 1000);
+  same(pq[0].values, { Penetration: '', Protected: '' }, 'a queued untick of Penetration unticks Protected');
+}
+
 // A cleared field is a real value ('' means "empty this cell"), so it must
 // merge like any other rather than be treated as nothing to say.
 q = Q.queueMerge(q, '2026-09-08', { Note: '' }, NOW + 8000);
@@ -649,6 +657,27 @@ function openLog(api) {
     has([note], api.dayLabel(TODAY) + ' did not go.', 'naming the day it stopped at');
     same(api.drafts(), [TODAY], 'only the refused day is still a change on screen');
     is(win.reads, 1, 'and the sheet is re-read once, after all of it');
+  }
+
+  console.log('\na column the sheet does not have: NOT saved, never queued, the rest still go');
+  {
+    const win = watchedWindow();
+    const noCol = fetchStub(b => b.date === DAY_A ? { ok: false, error: 'unknown-column: Mood' }
+                                                  : { ok: true, action: 'inserted' });
+    const api = bootRetry({ store: tokenStore(), fetch: noCol, env: { window: win } });
+    openLog(api);
+    api.typeField(DAY_A, 'Temp', '97.90');
+    api.typeField(DAY_B, 'Temp', '97.92');
+    win.reads = 0;
+    await api.saveAll();
+    is(noCol.calls.filter(c => c.date === DAY_A).length, 1, 'it is sent once — a retry cannot add a column');
+    same(api.getQueue(), [], 'and it is not queued, where it would fail the same way forever');
+    const note = api.logNote();
+    has([note], api.dayLabel(DAY_A) + ' NOT saved — unknown-column: Mood', 'the note says so, naming the column');
+    has([note], 'SETUP.md', 'and where to find how to add it');
+    has([note], 'Saved 1 day.', 'the other day still went');
+    same(api.drafts(), [DAY_A], 'the change that did not go is still on screen');
+    is(win.reads, 1, 'and the sheet is re-read once');
   }
 
   console.log('\na bad temperature stops the whole save, and names the day (ca12)');
