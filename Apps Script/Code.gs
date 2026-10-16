@@ -125,6 +125,11 @@ function reply(callback, obj) {
  *   { t: <token>, date: 'YYYY-MM-DD', op: 'delete' }
  */
 function doPost(e) {
+  // cf2: the data moved to the Cloudflare Worker (Docs/Cloudflare Migration
+  // Spec.md). This sheet is a frozen backup, so every write is refused — out
+  // loud, so a phone still running the old page keeps its entry queued and
+  // sends it to the Worker once a reload picks up the new address.
+  return reply(null, { ok: false, error: 'moved: reload the app' });
   if (!SHEET_ID || !READER_TOKEN || !WRITER_TOKEN) {
     return reply(null, { ok: false, error: 'not-configured' });
   }

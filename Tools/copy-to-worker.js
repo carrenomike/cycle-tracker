@@ -61,6 +61,12 @@ function byDate(r, who) {
   const [workerUrl] = lines('.cycle-worker.txt');
   const [sheetUrl, , token] = proxy;
   if (!sheetUrl || !token || !workerUrl) throw new Error('the config files are missing a line — see Worker/SETUP.md');
+  // cf2 points line 1 of .cycle-proxy.txt at the Worker once the app has
+  // switched. Then this would compare the Worker with itself and pass — so stop.
+  if (!/script\.google\.com/.test(sheetUrl)) {
+    throw new Error('line 1 of .cycle-proxy.txt is not the Google /exec URL any more — the switch (cf2) ' +
+      'is done and the sheet is a frozen backup, so there is nothing left to copy');
+  }
 
   console.log('Reading the sheet and the Worker...');
   const sheet = await read(sheetUrl, token, 'the sheet');

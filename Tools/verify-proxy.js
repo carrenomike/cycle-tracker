@@ -1,14 +1,11 @@
 #!/usr/bin/env node
-// Headless verification of the read proxy and the ca5 write endpoint.
+// Headless verification of the Cloudflare Worker that holds the data (cf2;
+// until then, the Apps Script proxy in front of the sheet).
 //
-//   node Tools/verify-proxy.js <execUrl> <readerToken> <writerToken> [sheetId]
+//   node Tools/verify-proxy.js <workerUrl> <readerToken> <writerToken>
 //
-// Tokens and the sheet ID are arguments, not constants: this repo is public.
-// Pass the sheet ID to also confirm the sheet itself is private to the world.
-//
-// Also runs against the Cloudflare Worker (cf1): pass its URL instead of the
-// /exec URL and no sheet ID (`verify.bat worker` does that). The Worker is told
-// apart by its read reply having no `tz` — it stores times as text.
+// Tokens are arguments, not constants: this repo is public. verify.bat passes
+// them without anyone typing them.
 //
 // Checks the four rejection paths, exercises the write endpoint end to end
 // against a sentinel date, then pulls the real rows through the SAME
@@ -96,20 +93,18 @@ const loadAdapter = () => block('ADAPTER', 'adaptRows');
 const loadSafety  = () => block('SAFETY',
   '{ isOv, isBleeding, detectOvDay, threeOverSixDay, safeWindowOpensOn, openingBleedEnd }');
 
-// Apps Script redirects /exec to a second Google host, and that second hop
-// intermittently 404s, 5xxs, or never answers at all. Retry a few times,
-// out loud — a genuine 404 still fails the run rather than hiding in here.
-// ca10 gave the app the same rule, in index.html's postEntry(): 4 attempts, the
-// same attempt * 1000 backoff, said out loud. Keep the two in step — a flake
-// this tool tolerates and the app calls a failure means this tool is not
-// verifying the app. If they ever have to differ, say why in BOTH places. The
-// app's deadline IS deliberately different: it stops on wall-clock time as well,
-// because a phone has someone watching a spinner and this does not.
+// A request that never comes back is retried a few times, out loud. ca10 gave
+// the app the same rule, in index.html's postEntry(): 4 attempts, the same
+// attempt * 1000 backoff. Keep the two in step — a flake this tool tolerates
+// and the app calls a failure means this tool is not verifying the app. If they
+// ever have to differ, say why in BOTH places. The app's deadline IS
+// deliberately different: it stops on wall-clock time as well, because a phone
+// has someone watching a spinner and this does not.
 // One place for the rule, so the read side and the write side cannot drift.
-// A request that never comes back is the same flake as a 404 from that hop: on
-// 2026-09-15 it was a timeout, not a status, that failed this run. Re-sending is
-// safe on both sides — a read has no side effect, and a write to a date the
-// sheet already has rewrites that row rather than adding a second one.
+// Re-sending is safe on both sides — a read has no side effect, and a write to
+// a date the server already has rewrites that day rather than adding a second.
+// cf2: an HTTP 404/5xx is no longer retried. That was Google's redirect hop,
+// and the Worker has none — a 404 or 500 now is a real answer and fails the run.
 // The 45s cut-off is built here, per attempt, and not handed in by the caller.
 // An AbortSignal that has fired stays fired forever, so a signal made once
 // outside this function aborts every retry the instant it starts: the run
@@ -130,9 +125,8 @@ async function flakyFetch(url, init, attempt = 1) {
     if (e && e.name === 'TimeoutError' && attempt < RETRY_ATTEMPTS) timedOut = true;
     else throw e;
   }
-  if (timedOut || ((res.status === 404 || res.status >= 500) && attempt < RETRY_ATTEMPTS)) {
-    console.log(`  retry  ${timedOut ? `no answer in ${ATTEMPT_TIMEOUT_MS / 1000}s` : `HTTP ${res.status}`} ` +
-      `from Google, attempt ${attempt} — waiting ${attempt}s`);
+  if (timedOut) {
+    console.log(`  retry  no answer in ${ATTEMPT_TIMEOUT_MS / 1000}s, attempt ${attempt} — waiting ${attempt}s`);
     await new Promise(r => setTimeout(r, attempt * RETRY_PAUSE_MS));
     return flakyFetch(url, init, attempt + 1);
   }
@@ -148,17 +142,8 @@ async function call(url, token) {
   catch { throw new Error(`Response was not JSON: ${text.slice(0, 200)}`); }
 }
 
-// ca11: Google runs doPost on the first hop and 302s to a one-time URL holding
-// the answer; fetching that URL twice runs doGet with no token, which answers
-// no-access. So a refusal can belong to a write that already landed — it
-// happened twice in four runs of this tool on 2026-09-15. index.html's
-// postEntry() has the same rule: send once more, believe the second answer,
-// never a third. Keep the two in step.
-const REFUSALS = ['read-only', 'no-access', 'not-configured'];
-
-// The write side of the same flaky hop. Kept a "simple" request (text/plain)
-// for exactly the reason the app does it: Apps Script cannot answer a preflight.
-async function post(url, body, confirming) {
+// Kept a "simple" request (text/plain), exactly as the app sends it.
+async function post(url, body) {
   const res = await flakyFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -166,31 +151,10 @@ async function post(url, body, confirming) {
     // exactly like a passing check that is slow if it is left to hang.
     body: JSON.stringify(body),
   });
-  // An HTML page here means the deployment has no doPost — it is still on the
-  // version from before ca5. Say that instead of "not JSON".
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   const text = await res.text();
-  let reply;
-  try { reply = JSON.parse(text); }
-  catch {
-    throw new Error(/<html/i.test(text)
-      ? 'the /exec URL answered a POST with a web page, not JSON — the live deployment ' +
-        'predates doPost. Deploy > Manage deployments > edit > New version.'
-      : `Response was not JSON: ${text.slice(0, 200)}`);
-  }
-  // A refusal is confirmed, not believed: one more send, and the second answer
-  // is the one that counts. Said out loud, because a phantom that was survived
-  // is still Google's hop misbehaving and this tool is where that gets seen.
-  if (reply && reply.ok === false && REFUSALS.includes(reply.error) && !confirming) {
-    console.log(`  retry  "${reply.error}" from Google — sending once more to check ` +
-      'it is real: the answer link can be fetched twice, and then a landed write reads as refused');
-    // After a pause, not instantly: on 2026-09-15 this tool produced a phantom
-    // confirmed by a second phantom, and then four requests with no answer at
-    // all. The hop goes bad in patches. index.html's postEntry() pauses too.
-    await new Promise(r => setTimeout(r, 1000));
-    return post(url, body, true);
-  }
-  return reply;
+  try { return JSON.parse(text); }
+  catch { throw new Error(`Response was not JSON: ${text.slice(0, 200)}`); }
 }
 
 const pause = () => new Promise(r => setTimeout(r, 400));
@@ -211,9 +175,9 @@ function splitCycles(rows) {
 }
 
 (async () => {
-  const [url, readerToken, writerToken, sheetId] = process.argv.slice(2);
+  const [url, readerToken, writerToken] = process.argv.slice(2);
   if (!url || !readerToken || !writerToken) {
-    console.error('usage: node Tools/verify-proxy.js <execUrl> <readerToken> <writerToken> [sheetId]');
+    console.error('usage: node Tools/verify-proxy.js <workerUrl> <readerToken> <writerToken>');
     process.exit(2);
   }
 
@@ -224,8 +188,7 @@ function splitCycles(rows) {
       r.ok === false && r.error === 'no-access'
         ? pass(`${what} is rejected cleanly (error: no-access)`)
         : r.error === 'not-configured'
-        ? fail(`${what}: the deployment has blank constants — the repo's Code.gs is a TEMPLATE, ` +
-               `pasting it over the editor wipes SHEET_ID and both tokens. Re-enter them and redeploy.`)
+        ? fail(`${what}: the Worker is missing a token secret or its database — see Worker/SETUP.md.`)
         : fail(`${what} returned ${JSON.stringify(r).slice(0, 200)}`);
     } catch (e) { fail(`${what}: ${e.message}`); }
     await pause();
@@ -246,28 +209,17 @@ function splitCycles(rows) {
       : fail(`writer token returned ${JSON.stringify(w).slice(0, 200)}`);
   } catch (e) { fail(`writer token: ${e.message}`); }
 
-  if (sheetId) {
-    console.log('\n--- SHEET IS PRIVATE ---');
-    try {
-      const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`);
-      const body = await res.text();
-      // A public sheet answers 200 with a gviz payload. A private one either
-      // errors or bounces an anonymous fetch to the Google sign-in page.
-      const isPublic = res.ok && body.includes('google.visualization.Query.setResponse');
-      isPublic
-        ? fail('the sheet is still readable by a logged-out fetch — it is NOT private')
-        : pass(`a logged-out fetch of the sheet is refused (HTTP ${res.status})`);
-    } catch (e) { pass(`a logged-out fetch of the sheet failed: ${e.message}`); }
-  } else {
-    console.log('\n--- SHEET IS PRIVATE ---\n  skip  pass the sheet ID as a 4th argument to check this.');
-  }
-
   if (!reader || reader.ok !== true) {
     console.log('\nNo rows to check — stopping.\n');
     process.exit(1);
   }
-  const onWorker = !('tz' in reader);
-  console.log(`\n  info  server: ${onWorker ? 'the Cloudflare Worker' : 'the Google sheet proxy'}`);
+  // The Worker's read has no `tz`; Code.gs's always did. Pointed at the old
+  // /exec by mistake, this would otherwise half-pass and then fail every write
+  // with "moved" — say which it is up front instead.
+  if ('tz' in reader) {
+    fail('this URL is the old Google proxy, not the Worker — fix line 1 of %USERPROFILE%\\.cycle-proxy.txt');
+    process.exit(1);
+  }
 
   console.log('\n--- THE ca2 PASTE ---');
   const rows = reader.rows.map(cells => {
@@ -290,27 +242,11 @@ function splitCycles(rows) {
   if (!reader.cols.includes('Time')) fail('the sheet has no Time column (ca2a recovery not pasted yet)');
   else {
     atLeast(rows.filter(r => r.Time).length, EXPECT.minTimes, 'rows carrying a time');
-    // A time is rendered through the spreadsheet's timezone on the way out and
-    // was stored through it on the way in, so the round trip only cancels while
-    // the two agree. Code.gs falls back to Etc/GMT if the sheet reports none —
-    // that fallback would shift every time by hours, in silence.
-    onWorker
-      ? pass('the Worker stores times as text, so no timezone is involved')
-      : reader.tz && reader.tz !== 'Etc/GMT'
-      ? pass(`sheet timezone reported as ${reader.tz}`)
-      : fail(`sheet timezone is ${JSON.stringify(reader.tz)} — times are rendered through it ` +
-             `and a missing one shifts them all (redeploy Code.gs, check File > Settings)`);
     const oddTimes = rows.filter(r => r.Time && !/^\d{1,2}:\d{2} (AM|PM)$/.test(r.Time))
                          .map(r => `${r.Date}="${r.Time}"`);
     oddTimes.length
       ? fail(`Time is not "h:mm AM" on: ${oddTimes.slice(0, 5).join(', ')}`)
       : pass('every time reads as h:mm AM/PM');
-    // A time that arrives as a date means the proxy formatted a time-of-day cell
-    // with the calendar format -- see cell() in Apps Script/Code.gs.
-    const asDates = rows.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.Time)).map(r => r.Date);
-    asDates.length
-      ? fail(`Time arrived as a date on: ${asDates.slice(0, 5).join(', ')} (redeploy Code.gs)`)
-      : pass('times arrive as times, not dates');
   }
 
   console.log('\n--- ADAPTED ROWS REPRODUCE THE DASHBOARD ---');
@@ -486,10 +422,10 @@ function splitCycles(rows) {
       is(got[0].Arousal, '', 'a cleared Arousal reads back blank');
     }
 
-    // 2c. Worker only: saving a day with every field blank deletes it — the
-    //     server decides after the merge, since only it sees the whole row.
-    //     Then the day is written again so the cleanup below has one to delete.
-    if (onWorker) {
+    // 2c. Saving a day with every field blank deletes it — the server decides
+    //     after the merge, since only it sees the whole row. Then the day is
+    //     written again so the cleanup below has one to delete.
+    {
       const blank = {};
       for (const c of reader.cols) if (c !== 'Date') blank[c] = '';
       wrote(await post(url, { t: writerToken, date: SENTINEL, values: blank }), 'deleted',

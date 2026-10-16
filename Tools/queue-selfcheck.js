@@ -172,13 +172,12 @@ console.log('\nwriteFailureKind — worth retrying, and did it land? (ca10)');
 const named = n => { const e = new Error('x'); e.name = n; return e; };
 same(E.writeFailureKind(named('TimeoutError'), true), { retryable: true, unknown: true },
   'a timeout is retried, and may already be on the sheet — ca10\'s live failure');
-const hop = new Error('the server answered HTTP 404.'); hop.hopStatus = 404;
-same(E.writeFailureKind(hop, true), { retryable: true, unknown: true },
-  'the flaky second hop is retried, and the write may have run before the reply was lost');
+same(E.writeFailureKind(new Error('not an answer (HTTP 500)'), true), { retryable: false, unknown: false },
+  'a 500 from the Worker is its answer, not a flake — until cf2 Google\'s second hop made it one');
 same(E.writeFailureKind(named('TypeError'), false), { retryable: false, unknown: false },
   'no connection at all: nothing landed, and retrying now is pointless');
 same(E.writeFailureKind(named('TypeError'), true), { retryable: true, unknown: true },
-  'a TypeError with a connection is a redirect that failed CORS — retry, and claim nothing');
+  'a TypeError with a connection could be a dropped reply — retry, and claim nothing');
 same(E.writeFailureKind(new Error('not an answer (HTTP 200)'), true),
   { retryable: false, unknown: false },
   'a reply that was read and made no sense is not bad luck — asking again gets it again');
@@ -409,11 +408,11 @@ function openLog(api) {
   }
 
 
-  // ── ca10: the flaky second hop ─────────────────────────────────────────────
-  // Apps Script's /exec redirects to a second Google host that intermittently
-  // 404s, 5xxs, or simply never answers. verify-proxy has retried that since ca5;
-  // the app did not, and on 2026-09-15 a row that WAS written was reported to
-  // Mike as a write that failed.
+  // ── ca10: retrying silence ────────────────────────────────────────────────
+  // On 2026-09-15 a row that WAS written was reported to Mike as a write that
+  // failed, because the app never retried. Until cf2 that was Google's /exec
+  // hop flaking with 404/5xx as well as silence; the Worker answers in one hop,
+  // so only silence (a timeout) is retried now.
   //
   // The backoff is a real await; page-harness runs any timer under 5s for exactly
   // that reason, and no-ops the page's 20s load timer. These boots only need the
@@ -428,7 +427,7 @@ function openLog(api) {
 
   // Answers a scripted sequence of HTTP outcomes, so "flaked once, then worked"
   // is a real second request rather than a mocked verdict. A number is an HTTP
-  // status with Google's error page in the body; 'timeout' is the AbortSignal
+  // status with an error page in the body; 'timeout' is the AbortSignal
   // rejection; anything else is a JSON reply. Past the end the last step repeats,
   // which is what an outage looks like.
   function scriptedStub(steps) {
@@ -451,7 +450,7 @@ function openLog(api) {
     return fn;
   }
 
-  console.log('\na flake on the second hop is retried, not reported as a failure (ca10)');
+  console.log('\na request that got no answer is retried, not reported as a failure (ca10)');
   {
     const s6 = makeStore();
     const dead = fetchStub(() => new Error('Failed to fetch'));
@@ -459,11 +458,11 @@ function openLog(api) {
     openLog(api); api.typeField(DAY_A, 'Temp', '97.90'); await api.saveAll();
     is(api.getQueue().length, 1, 'one day waiting to be sent');
 
-    const flaky = scriptedStub([404, { ok: true, action: 'inserted' }]);
+    const flaky = scriptedStub(['timeout', { ok: true, action: 'inserted' }]);
     const api2 = bootRetry({ store: s6, fetch: flaky });
     openLog(api2);
     await api2.flushQueue(true);
-    is(flaky.calls.length, 2, 'the 404 from Google is tried again rather than believed');
+    is(flaky.calls.length, 2, 'the silence is tried again rather than reported');
     same(flaky.calls[1], flaky.calls[0], 'and the retry sends exactly the same patch');
     is(api2.getQueue().length, 0, 'the entry leaves on the confirmation, and only then');
     is(api2.getNote(), null, 'a flake that was survived is not reported as a problem');
@@ -474,7 +473,7 @@ function openLog(api) {
   console.log('\na retry while Mike is watching says so on screen');
   {
     const s7 = makeStore();
-    const flaky = scriptedStub([500, { ok: true, action: 'inserted' }]);
+    const flaky = scriptedStub(['timeout', { ok: true, action: 'inserted' }]);
     const api = bootRetry({ store: s7, fetch: flaky });
     openLog(api);
     // The page overwrites the save bar as it goes, so keep every line it wrote:
@@ -492,12 +491,10 @@ function openLog(api) {
     is(api.getQueue().length, 0, 'a write that got through on the retry is not queued');
   }
 
-  // ── ca11: the refusal that never happened ──────────────────────────
-  // Google runs doPost on the first hop and 302s to a one-time URL holding the
-  // answer. Fetching that URL twice runs doGet with no token, which answers
-  // `no-access` — a refusal for a write that is already on the sheet. Seen twice
-  // in four verify.bat runs on 2026-09-15. So a refusal is confirmed by one
-  // extra send, and only the second one counts.
+  // ── refusals ──────────────────────────────────────────────────────────────
+  // ca11 confirmed a refusal with a second send, because Google's redirect could
+  // turn a write that landed into `no-access`. The Worker has no redirect (cf2),
+  // so a refusal is believed the first time.
 
   // Counts the times the remembered role was actually dropped from storage, so
   // "forgotten once" is checked rather than assumed. ca9a broke twice over this.
@@ -509,27 +506,7 @@ function openLog(api) {
     return st;
   }
 
-  console.log('\na refusal is confirmed before it is believed (ca11)');
-  {
-    const s11 = roleStore();
-    const phantom = scriptedStub([{ ok: false, error: 'no-access' },
-                                  { ok: true, action: 'inserted' }]);
-    const api = bootRetry({ store: s11, fetch: phantom });
-    api.remember('writer');
-    s11.forgets = 0;
-    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
-    await api.saveAll();
-    is(phantom.calls.length, 2, 'the refusal is sent again rather than believed on sight');
-    same(phantom.calls[1], phantom.calls[0], 'and the confirming send carries the same patch');
-    is(api.getQueue().length, 0, 'the write landed on the second send, so nothing is owed');
-    is(api.getNote(), null, 'a phantom that was survived is not reported as a problem');
-    is(api.getRole(), 'writer', 'and Mike is still the writer');
-    is(s11.forgets, 0, 'the remembered role was never dropped on an unconfirmed refusal');
-    is(api.logNote().startsWith('NOT saved'), false,
-      'nothing told him the save failed');
-  }
-
-  console.log('\na real refusal still refuses — once, and it still forgets the role');
+  console.log('\na refusal is believed on the first send, and forgets the role once (cf2)');
   {
     const s12 = roleStore();
     const refused = scriptedStub([{ ok: false, error: 'no-access' }]);
@@ -538,52 +515,45 @@ function openLog(api) {
     s12.forgets = 0;
     openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
     await api.saveAll();
-    is(refused.calls.length, 2,
-      'one confirming send, not a budget — a refusal behind a retry loop is a banner nothing clears');
-    is(api.getRole(), null, 'a refusal that repeated is the server proving the remembered role wrong');
+    is(refused.calls.length, 1, 'one send — a refusal is the server\'s answer, not a flake');
+    is(api.getRole(), null, 'the server proved the remembered role wrong');
     is(s12.forgets, 1, 'and it is forgotten exactly once');
-    is(api.getQueue().length, 0, 'a confirmed refusal is still never queued');
-    is(api.logNote().startsWith('NOT saved'), true,
-      'a refusal WAS observed, so it may still say NOT saved');
+    is(api.getQueue().length, 0, 'a refusal is never queued');
+    is(api.logNote().startsWith('NOT saved'), true, 'and it says NOT saved');
   }
 
-  console.log('\nthe confirming send is not a licence to retry a refusal for ever');
+  console.log('\nthe old Google sheet saying "moved" keeps the entry and says reload (cf2)');
   {
-    // `read-only` cannot be a phantom — doGet has no such answer — but it costs
-    // one extra send rather than a second classification of refusals. What it
-    // must never cost is a third.
-    const s13 = roleStore();
-    const refused = scriptedStub([{ ok: false, error: 'read-only' }]);
-    const api = bootRetry({ store: s13, fetch: refused });
-    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
-    await api.saveAll();
-    is(refused.calls.length, 2, 'two sends and no more, whatever the refusal says');
-    is(api.getQueue().length, 0, 'and it is still never queued');
-  }
-
-  console.log('\na refusal that cannot be confirmed is a write that may have landed');
-  {
-    // The phantom means the row may be sitting in the sheet. If the confirming
-    // send never gets an answer, nothing has been observed that proves it is not
-    // — so the entry is kept and marked unconfirmed, rather than dropped the way
-    // a refusal is.
-    const s14 = roleStore();
-    const lost = scriptedStub([{ ok: false, error: 'no-access' }, 'timeout']);
-    const api = bootRetry({ store: s14, fetch: lost });
+    const s15 = roleStore();
+    const moved = scriptedStub([{ ok: false, error: 'moved: reload the app' }]);
+    const api = bootRetry({ store: s15, fetch: moved });
     api.remember('writer');
-    s14.forgets = 0;
+    s15.forgets = 0;
     openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
     await api.saveAll();
-    is(api.getQueue().length, 1, 'the entry is kept rather than dropped on an unconfirmed refusal');
-    is(api.getQueue()[0].unknown, true, 'and marked as one that may already be on the sheet');
-    is(api.getRole(), 'writer', 'the role survives: nothing confirmed the refusal');
-    is(s14.forgets, 0, 'so nothing was forgotten');
+    is(moved.calls.length, 1, 'not retried');
+    is(api.getQueue().length, 1, 'kept to send after the reload, not dropped like a refusal');
+    is(api.getRole(), 'writer', 'and the role is not forgotten — nothing was refused');
+    is(api._el('app').innerHTML.includes('reload the app'), true,
+      'the unsent banner\'s "Last attempt" line tells Mike to reload');
+  }
+
+  console.log('\nan HTTP error from the Worker is an answer: one send, kept, not "unconfirmed" (cf2)');
+  {
+    const s16 = makeStore();
+    const err500 = scriptedStub([500]);
+    const api = bootRetry({ store: s16, fetch: err500 });
+    openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
+    await api.saveAll();
+    is(err500.calls.length, 1, 'a 500 is not retried — the Worker has no flaky second hop');
+    is(api.getQueue().length, 1, 'the entry stays to send later');
+    is(!!api.getQueue()[0].unknown, false, 'and it is not marked as maybe-landed');
   }
 
   console.log('\nan outage exhausts the budget, and is visible when it does');
   {
     const s9 = makeStore();
-    const outage = scriptedStub([500]);
+    const outage = scriptedStub(['timeout']);
     const api = bootRetry({ store: s9, fetch: outage });
     openLog(api); api.typeField(DAY_A, 'Temp', '97.90');
     await api.saveAll();
@@ -591,7 +561,7 @@ function openLog(api) {
       'it stops at the shared attempt count — a retry with no end hides a real outage');
     is(api.getQueue().length, 1, 'the entry stays, because nothing confirmed it');
     is(api.getQueue()[0].unknown, true,
-      'and it is marked unconfirmed: the hop can 500 after doPost has already run');
+      'and it is marked unconfirmed: a write can land and its reply still be lost');
 
     const api2 = bootRetry({ store: s9, fetch: outage });
     openLog(api2);
@@ -604,7 +574,7 @@ function openLog(api) {
 
   console.log('\nthe budget, not the attempt count, is what stops a timeout retrying');
   {
-    // A timeout costs 45 seconds a go; a 404 costs a moment. Same four attempts,
+    // A timeout costs 45 seconds a go; an answer costs a moment. Same four attempts,
     // very different waits — so the stop is a wall-clock deadline.
     const s10 = makeStore();
     const slow = scriptedStub(['timeout']);

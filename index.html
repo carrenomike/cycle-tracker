@@ -937,7 +937,7 @@ function sameTemp(a, b) {
 
 // Only what actually changed is sent. That keeps the confirmation honest (it
 // lists exactly what the sheet is about to be told), makes a re-send after a
-// flaky redirect a no-op, and leaves every other column of an existing row
+// lost reply a no-op, and leaves every other column of an existing row
 // untouched — including the `cervix: <wording>` text ca2 folded into the Note.
 function entryDiff(existing, form) {
   const out = {};
@@ -1058,13 +1058,14 @@ function writeErrorText(err) {
   if (err === 'read-only')      return 'This is a read-only link — it cannot save.';
   if (err === 'no-access')      return 'This link is not valid any more.';
   if (err === 'not-configured') return 'The server is not finished being set up.';
+  // cf2: the old Google server's answer to every write after the switch. Not a
+  // refusal: the entry is queued, and sends to the new server after a reload.
+  if (/^moved:/.test(String(err || ''))) return 'The data has moved to a new server — reload the app, then it will send.';
   return String(err || 'the server sent a reply this app could not read');
 }
 
-// Apps Script redirects /exec to a second Google host, and that second hop
-// intermittently 404s or 5xxs under back-to-back requests. Tools/verify-proxy.js
-// has retried that since ca5; the app did not, so on 2026-09-15 a row that was
-// written to the sheet was reported to Mike as a write that failed. These three
+// A request that never comes back is retried (ca10: on 2026-09-15 a row that
+// was written was reported to Mike as a write that failed). These three
 // numbers are the app's half of one rule shared with verify-proxy's call()/post()
 // — if they ever drift apart, say why in a comment in BOTH files, because a flake
 // the verifier tolerates and the app calls a failure means the verifier is not
@@ -1077,16 +1078,15 @@ let   RETRY_PAUSE_MS     = 1000;    // backoff is attempt * this. A `let` only s
 
 // Two different questions about one failure: is trying again worth anything, and
 // might the write have landed anyway? They come apart on a timeout — the request
-// reached Apps Script and only the reply was lost, which is exactly how ca10's
+// reached the server and only the reply was lost, which is exactly how ca10's
 // Sep 15 entry ended up in the sheet and on the "could not be sent" banner.
+// cf2: an HTTP 404/5xx is no longer a flake that may have landed — that was
+// Google's redirect hop, and the Worker has none. It is a reply, and reported.
 function writeFailureKind(err, online) {
   const name = err && err.name;
   if (name === 'TimeoutError') return { retryable: true, unknown: true };
-  // A 404/5xx from the second hop. The write may still have run before Google
-  // lost the reply, so this is not evidence either way.
-  if (err && err.hopStatus)    return { retryable: true, unknown: true };
-  // fetch() rejects with a TypeError for no connection AND for a redirect that
-  // fails CORS, and the two are indistinguishable from here. `navigator.onLine`
+  // fetch() rejects with a TypeError for no connection AND for a connection
+  // dropped mid-request, and the two are indistinguishable from here. `navigator.onLine`
   // is only trusted in the direction it is reliable: false means there was no
   // network to reach the sheet with, so nothing landed and a retry is pointless.
   if (name === 'TypeError')    return online === false
@@ -1098,7 +1098,7 @@ function writeFailureKind(err, online) {
 // ca3b's lesson, which ca7 already applied to the 20s load timeout: say what was
 // observed, not what it probably means. "Could not be sent" is a claim about the
 // sheet, and a timeout is not evidence for it. Re-sending is safe and says so:
-// doPost is update-or-insert keyed on the date, under a script lock.
+// a write is update-or-insert keyed on the date.
 function writeAttemptText(err) {
   const base = err && err.name === 'TimeoutError'
     ? `the server did not reply within ${ATTEMPT_TIMEOUT_MS / 1000} seconds.`
@@ -1217,7 +1217,7 @@ function queueBannerLines(entries, note, now, label) {
       'The sheet has not been looked at again since you typed them.');
     const errs = entries.map(e => e.lastError).filter(Boolean);
     if (errs.length) lines.push('Last attempt: ' + errs[errs.length - 1]);
-    // Each send already retries the flaky hop a few times, so this counts sends,
+    // Each send already retries silence a few times, so this counts sends,
     // not requests. One is a flake; several is an outage worth acting on.
     const tries = entries.reduce((m, e) => Math.max(m, e.tries || 0), 0);
     if (tries > 1) lines.push(`Sent again ${tries} times so far without a confirmation.`);
@@ -1474,7 +1474,26 @@ function entryScreenHTML(cycles) {
     <div class="log-top"><div class="save-bar" id="saveBar">${saveBarInner()}</div></div>
     <div>${cards.join('')}</div>
     <button class="more-btn" onclick="showMoreDays()">Show 14 more days</button>
+    <button class="more-btn" onclick="downloadAll()">Download all data</button>
   </div>${_pickerIso ? pickerHTML(_pickerIso) : ''}`;
+}
+
+// The backup button (cf2): every day as a CSV, built from the rows already on
+// screen — no extra request. Every cell quoted, so a comma or quote in a Note
+// survives. If the screen was drawn from the saved copy, so is the file.
+function downloadAll() {
+  if (!_loaded) return setLogNote('Nothing has loaded yet, so there is nothing to download.', true);
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const csv = [_loaded.cols].concat(_loaded.rows).map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `cycle-data-${isoOf(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setLogNote(`Downloaded ${_loaded.rows.length} days` +
+    (_staleInfo ? ' — from the saved copy, as the server could not be reached.' : '.'));
 }
 
 // ── Save bar ──────────────────────────────────────────────────────────────
@@ -1666,8 +1685,8 @@ const WRITE_BUDGET_SAVE  = 100000;
 const WRITE_BUDGET_FLUSH = 180000;
 
 // JSONP is GET-only, so the write path is a real fetch. text/plain keeps it a
-// "simple" request: Apps Script cannot answer a CORS preflight, and an
-// application/json content type would provoke one and fail before it left.
+// "simple" request with no CORS preflight — the protocol Apps Script forced on
+// us, kept so the Worker could take over without the app changing shape.
 function postOnce(iso, values) {
   return fetch(PROXY_URL, {
     method: 'POST',
@@ -1675,14 +1694,6 @@ function postOnce(iso, values) {
     body: JSON.stringify({ t: TOKEN, date: iso, values: values }),
     signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
   }).then(res => res.text().then(text => {
-    // The flaky second hop, which answers an HTML error page rather than JSON.
-    // Flagged rather than parsed so the retry above can tell it apart from a
-    // reply this app simply could not read.
-    if (res.status === 404 || res.status >= 500) {
-      const e = new Error(`the server answered HTTP ${res.status}.`);
-      e.hopStatus = res.status;
-      throw e;
-    }
     let reply;
     try { reply = JSON.parse(text); }
     catch (e) { throw new Error(`the server replied with something that is not an answer (HTTP ${res.status})`); }
@@ -1698,15 +1709,6 @@ async function postEntry(iso, values, budgetMs, onRetry) {
   // Not `budgetMs ||`: a caller asking for no room at all must get no room,
   // not the default two minutes.
   const deadline = Date.now() + (budgetMs == null ? WRITE_BUDGET_SAVE : budgetMs);
-  // ca11: a refusal is not proof either. Apps Script runs doPost on the FIRST
-  // hop and 302s to a one-time URL holding the already-computed answer; fetching
-  // that URL twice does not replay it, it runs doGet with no token — which
-  // answers `no-access`. So a write that landed can come back refused, and the
-  // app would tell Mike he has no access and forget he is the writer. A refusal
-  // is believed only when a second, fresh send refuses too. Exactly one extra
-  // send, never a budget: ca6 is explicit that a refusal behind a retry loop is
-  // a banner nothing can ever clear.
-  let refusedOnce = false;
   for (let attempt = 1; ; attempt++) {
     let reply = null, problem = null;
     try { reply = await postOnce(iso, values); }
@@ -1714,31 +1716,13 @@ async function postEntry(iso, values, budgetMs, onRetry) {
 
     if (!problem) {
       // A reply is final, refusal or not — the server answered, and asking again
-      // gets the same answer. The one exception is the phantom refusal above.
-      // Everything else, `bad-request` included, came from the script's own run
-      // on the first hop and means what it says.
-      if (reply && reply.ok !== true && isRefusal(reply.error)) {
-        if (!refusedOnce) {
-          refusedOnce = true;
-          // Survived, not silent: a phantom is Google's hop misbehaving, and
-          // the next person to read the console should see it happening.
-          console.warn(`Write for ${iso} came back "${reply.error}" — sending once more to ` +
-            'check that is real: a refusal can be the answer link being fetched twice.');
-          // Not immediately. On 2026-09-15 a verify.bat run produced a phantom
-          // and then a phantom confirming it, followed by four requests that got
-          // no answer at all: the hop goes bad in patches, not per request, and a
-          // confirming send fired instantly lands inside the same patch. The same
-          // pause the retry loop uses, for the same reason.
-          await new Promise(r => setTimeout(r, RETRY_PAUSE_MS));
-          continue;
-        }
-        // Two script runs said no, so the link really is what they say it is.
-        // ca9a's role check sits here, outside the retry, so no retry can
-        // re-fire forgetRole() and no short-circuit can skip it: `read-only` is
-        // the server proving a remembered "writer" wrong, and the one refusal
-        // shape the read path can never see.
-        forgetRole();
-      }
+      // gets the same answer. (ca11 sent a refusal twice before believing it,
+      // because Google's redirect could fake one; cf2 removed that with Google.)
+      // ca9a's role check sits here, outside the retry, so no retry can re-fire
+      // forgetRole() and no short-circuit can skip it: `read-only` is the server
+      // proving a remembered "writer" wrong, and the one refusal shape the read
+      // path can never see.
+      if (reply && reply.ok !== true && isRefusal(reply.error)) forgetRole();
       return reply;
     }
 
@@ -2813,10 +2797,10 @@ function drawOverlayChart(cycles) {
 
 // ── Data load ──────────────────────────────────────────────────────────────
 
-// The sheet is private. All reads go through an Apps Script web app that
-// checks a token before it touches the sheet. Paste the /exec URL of your
-// deployment here — see Apps Script/SETUP.md.
-const PROXY_URL = 'https://script.google.com/macros/s/AKfycbxmV4lU0JN1CjiUXlZ9B4FBWGGz9yGA5TJiGBe-Am_HNxblQERYZgw-9csv9LjeA7QD/exec';
+// The data is private. Every read and write goes through a Cloudflare Worker
+// that checks a token first — see Worker/SETUP.md. (Until cf2 this was the
+// Apps Script /exec URL; that sheet is kept, frozen, as a backup.)
+const PROXY_URL = 'https://cycle-tracker.mcc-lab.workers.dev';
 
 const TOKEN_KEY = 'cycleToken';
 // The display cache lives in its own key so a quota failure can be recovered
@@ -2948,6 +2932,7 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 // warning on a phone, so collect them here and let ca7's banner show them too.
 // renderPayload() clears this before every parse.
 let _dataWarnings = [];
+let _loaded = null;   // the cols/rows last drawn, for Download all data
 function warn(msg) { _dataWarnings.push(msg); console.warn(msg); }
 
 // Sheets turns a ticked checkbox into a boolean and the proxy flattens that to
@@ -3054,6 +3039,7 @@ function writeCache(cols, rows, role) {
 // The one place rows become a rendered dashboard, so the cached path and the
 // live path cannot drift apart.
 function renderPayload(cols, rows) {
+  _loaded = { cols: cols, rows: rows };
   const objs = rows.map(cells => {
     const obj = {};
     cols.forEach((c, i) => { obj[c] = cells[i] == null ? '' : String(cells[i]); });
@@ -3066,8 +3052,8 @@ function renderPayload(cols, rows) {
   render(cycles);
 }
 
-// A failed read is not evidence the data changed — Google's /exec redirect
-// intermittently 404s. Fall back to the last good copy and say how old it is,
+// A failed read is not evidence the data changed — a phone loses signal, a
+// server has a bad minute. Fall back to the last good copy and say how old it is,
 // rather than replacing a working dashboard with an error screen. Staleness is
 // therefore driven by the age of the last SUCCESSFUL read, never by one failure.
 function failLoad(msg) {
@@ -3138,13 +3124,6 @@ function loadData(attempt) {
         // server has just said this link is not a working writer link, so a
         // remembered role from an earlier session is wrong and must go, or
         // showMessage() would draw the entry form over the refusal.
-        //
-        // ca11 deliberately did NOT give this path the write path's confirming
-        // re-send. The phantom refusal needs the answer link to be fetched a
-        // second time, and that second run of doGet has no `callback` parameter
-        // — so it answers bare JSON, which this <script> tag cannot execute at
-        // all. A phantom here times out; it cannot arrive here dressed as a
-        // refusal. If that ever changes, this is the place to copy postEntry().
         if (err === 'not-configured' || err === 'no-access') forgetRole();
         if (err === 'not-configured') {
           return showMessage('This app is not finished being set up.',
@@ -3179,8 +3158,8 @@ function loadData(attempt) {
   _scriptEl = document.createElement('script');
   _scriptEl.onerror = () => {
     done();
-    // A 404 from the flaky redirect errors fast, so a retry costs a second, not
-    // twenty. The 20s timeout below is a different failure and is not retried.
+    // A failed load errors fast, so a retry costs a second, not twenty. (Built
+    // for Google's flaky redirect; kept after cf2 because it is cheap.) The 20s timeout below is a different failure and is not retried.
     if (attempt < 3) {
       console.warn(`The sheet did not answer (attempt ${attempt}) — retrying.`);
       return setTimeout(() => loadData(attempt + 1), attempt * 800);

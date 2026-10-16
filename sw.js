@@ -10,7 +10,8 @@
 // fallback for a request that actually failed.
 //
 // RULE 2 — this worker touches same-origin GETs and the one CDN script, and
-// nothing else. Every read and write of the sheet goes to script.google.com, so
+// nothing else. Every read and write of the data goes to the Worker on
+// workers.dev (cf2; script.google.com before that) — another origin — so
 // those fall straight through: cycleCache stays the only copy of sheet data on
 // the phone, and the staleness banner keeps reporting on all of it.
 

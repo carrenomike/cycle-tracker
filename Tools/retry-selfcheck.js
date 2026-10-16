@@ -83,26 +83,22 @@ function run(answers) {
   is(new Set(t.calls.map(c => c.signal)).size, 4,
     'each attempt gets its own cut-off, not the first attempt spent four times');
   is(JSON.stringify(t.waits), JSON.stringify([1000, 2000, 3000]),
-    'and it waits longer each time rather than hammering Google');
+    'and it waits longer each time rather than hammering the server');
+  const m = await run(['timeout', 200]);
+  is(m.calls.length, 2, 'silence then an answer: one retry');
+  is(m.res && m.res.status, 200, 'and that answer is the one returned');
 
-  console.log('\nthe flaky second hop: a 404 or a 5xx is the same flake');
-  const a = await run([404, 200]);
-  is(a.calls.length, 2, 'a 404 is retried');
-  is(a.res && a.res.status, 200, 'and the answer that follows is the one returned');
-  const b = await run([503, 500, 404, 200]);
-  is(b.calls.length, 4, 'a mix of 5xx and 404 keeps retrying up to the limit');
-  is(b.res && b.res.status, 200, 'the fourth attempt still counts');
-  const c = await run([404, 404, 404, 404]);
-  is(c.calls.length, 4, 'a 404 that never goes away stops at four');
-  is(c.res && c.res.status, 404, 'and is handed back, so the caller fails the run on it');
-
-  console.log('\nanything that is not that flake fails immediately');
+  // Until cf2, Google's /exec redirected to a second host that flaked with
+  // 404/5xx, so those were retried too. The Worker answers in one hop: a 404 or
+  // a 500 from it is a real answer, and the caller fails the run on it.
+  console.log('\nany HTTP answer comes straight back, never retried (cf2)');
+  for (const code of [200, 404, 500, 503, 403]) {
+    const r = await run([code, 200]);
+    is(r.calls.length, 1, `a ${code} is not retried`);
+    is(r.res && r.res.status, code, `and the ${code} is handed back`);
+  }
   const d = await run([200]);
-  is(d.calls.length, 1, 'an answer first time is not retried');
-  is(JSON.stringify(d.waits), '[]', 'and nothing waits');
-  const e = await run([403]);
-  is(e.calls.length, 1, 'a 403 is Google saying no, not a flake');
-  is(e.res && e.res.status, 403, 'so it comes straight back');
+  is(JSON.stringify(d.waits), '[]', 'an answer first time waits for nothing');
 
   console.log(failed ? `\n${failed} FAILED` : '\nall good');
   process.exit(failed ? 1 : 0);

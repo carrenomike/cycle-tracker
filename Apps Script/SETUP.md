@@ -1,5 +1,9 @@
 # Setup — the proxy and the two tokens
 
+> **Retired in cf2.** The app now reads and writes through the Cloudflare Worker (`Worker/SETUP.md`).
+> The Google sheet is kept as a frozen backup: its `doPost` refuses every write with `moved:`.
+> `verify.bat` now checks the Worker, not this proxy. The rest of this file is history.
+
 Everything here is done once, by hand, in a browser. Nothing in this file's
 sequence puts a secret into this repo: the repo is public and stays public.
 

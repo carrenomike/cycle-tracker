@@ -120,14 +120,59 @@ If it says **FAIL**, copy what it printed to me. It's safe to run again — it n
 .\verify.bat worker
 ```
 
-This is the same check as `verify.bat`, aimed at the Worker: the access rules, the write tests on a test day
+(After cf2 it is just `.\verify.bat`.) This is the same check, aimed at the Worker: the access rules, the write tests on a test day
 (added and removed again), and your real cycles still adding up to the same dashboard numbers.
-It should end with **All checks passed.** A few `retry "…" from Google` lines are expected for now — that
-old workaround is removed in cf2.
+It should end with **All checks passed.**
 
 ## Then tell me
 
 Tell me the results of steps 10 and 11 (or paste anything that failed). That's the end of cf1.
+
+---
+
+## cf2 — switch the app over
+
+Do these in order, in one sitting. From step A until step D the app on the phone can't save (it keeps
+anything you enter and sends it later) — that's on purpose, so no day lands on Google after the last copy.
+
+**A. Freeze the Google sheet.** Open the Apps Script editor (from the sheet: Extensions → Apps Script). At the
+very top of `function doPost(e) {`, add this one line — don't paste the whole repo file over it, that wipes
+the tokens:
+
+```js
+  return reply(null, { ok: false, error: 'moved: reload the app' });
+```
+
+Save, then **Deploy → Manage deployments → pencil icon → Version: New version → Deploy**. The link stays the same.
+
+**B. Copy the last days across and compare.**
+
+```powershell
+node Tools\copy-to-worker.js
+```
+
+Must end with **`Match: …`**. If it says FAIL, stop and send me what it printed.
+
+**C. Point the check at the Worker.**
+
+```powershell
+notepad $env:USERPROFILE\.cycle-proxy.txt
+```
+
+Replace line 1 (the Google address) with the Worker address (the one line in `.cycle-worker.txt`), and delete
+line 4 (the sheet ID). Three lines left: Worker address, reader token, writer token. Save.
+
+**D. Publish the app:** run `deploy.bat`, slice code `cf2`.
+
+**E. Check it:**
+
+1. `.\verify.bat` → **All checks passed.**
+2. On your phone, open the app **with signal** (the first open after the switch has to load fresh), log a real
+   day, and check it shows.
+3. Open Tirzah's link — it should load her dashboard.
+4. A stale copy: before step D, open the app in a browser tab and leave it. After D, in that tab *without
+   reloading*, change a day and save. It should keep the entry and say **moved: reload the app**. Reload — it
+   then sends to the Worker on its own.
 
 ---
 
@@ -137,5 +182,5 @@ Tell me the results of steps 10 and 11 (or paste anything that failed). That's t
 - **Logs**, if something misbehaves later: `npx wrangler tail` in the `Worker` folder shows live errors.
 - **Changing the Worker** (e.g. a new field in `COLS`): edit `worker.js`, then `npx wrangler deploy` from the
   `Worker` folder. `deploy.bat` does *not* deploy the Worker — it only publishes the app.
-- **Days logged on the phone after step 10** go to Google only, until cf2. cf2 re-runs the compare just
-  before switching, so they're not lost — you can also run `node Tools\copy-to-worker.js` again any time.
+- **Backup file:** the Log tab has a **Download all data** button that saves everything as a spreadsheet file.
+- **The Google sheet** is kept, frozen, as a backup. Nothing writes to it after cf2.
