@@ -164,7 +164,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   has(closed, 'day-card', 'there are day cards');
   has(closed, "typeField('" + d0 + "','Temp'", 'every day has a Temp box');
   has(closed, "typeField('" + d0 + "','Time'", 'and a Time box');
-  has(closed, "openPicker('" + d0 + "')", 'and a Symptoms button');
+  has(closed, "openPicker('" + d0 + "')\" aria-label=\"Symptoms\" title=\"Symptoms\">+</button>", 'and a + button that opens Symptoms, named for screen readers');
   /role="dialog"/.test(closed) ? fail('the panel was open before anything was tapped') : pass('the panel starts closed');
   has(closed, 'Show 14 more days', 'the show-more button is drawn');
   /chartTimeline|Cycle Day/.test(closed)
@@ -175,7 +175,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   // line under it, or a day would look blank for what the panel holds.
   const full = summaryOf(closed, d2);
   const WANT = ['spotting', 'sore breasts', 'creamy mucus', 'cervix soft high', 'arousal med', 'acne',
-                'cramps', 'penetration', 'protected', 'mood anxious, restless', 'off-time', 'excluded',
+                'cramps', 'penetration (protected)', 'mood anxious, restless', 'off-time', 'excluded',
                 'ovulation', 'day 1', 'note: tired'];
   const missing = WANT.filter(w => !full.includes(w));
   missing.length ? fail(`the row line left out ${missing.join(', ')}: ${full}`)
@@ -223,7 +223,9 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   api.toggleFlag(d1, 'Protected');
   is_(api.getDrafts().has(d1), false, 'and tapping it anyway does nothing');
   api.toggleFlag(d1, 'Penetration');
+  has(summaryOf(app.innerHTML, d1), 'penetration (unprotected)', 'Penetration alone reads "penetration (unprotected)"');
   api.toggleFlag(d1, 'Protected');
+  has(summaryOf(app.innerHTML, d1), 'penetration (protected)', 'with Protected it reads "penetration (protected)"');
   /disabled>Protected/.test(app.innerHTML) ? fail('Protected stayed greyed out with Penetration ticked')
                                            : pass('ticking Penetration lets Protected be ticked');
   api.toggleFlag(d1, 'Penetration');
@@ -238,6 +240,8 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   api.openPicker(d1);
   /class="opt on"[^>]*toggleFlag\('[^']*','Protected'\)">Protected/.test(app.innerHTML)
     ? pass('it shows ticked, and can be unticked') : fail('an existing lone Protected was hidden or locked');
+  is_(summaryOf(app.innerHTML, d1).includes('protected') && !summaryOf(app.innerHTML, d1).includes('penetration'), true,
+      'and its row line says "protected", without inventing a penetration');
   api.closePicker();
 
   // "+ add": lowercase, no comma, no repeats — and remembered only by the sheet.
@@ -310,7 +314,7 @@ console.log('\n--- THE LOG EXIT (writer only) ---');
   /<th[^>]*>(Cervix|Pos|Mucus|Breasts)<\/th>/.test(dash)
     ? fail('the old Cervix / Pos / Mucus / Breasts columns are still there') : pass('in place of Cervix, Pos, Mucus and Breasts');
   has(dash, '<td class="wrap sym">sore breasts, creamy mucus, cervix soft high, arousal med, acne, cramps, ' +
-    'penetration, protected, mood anxious, restless</td>', 'listing every symptom the day holds');
+    'penetration (protected), mood anxious, restless</td>', 'listing every symptom the day holds');
   api.setScreen('log', 'writer');
 
   // Tirzah never gets any of it, whatever _tab says.

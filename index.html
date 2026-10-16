@@ -303,14 +303,16 @@ tfoot td {
 .day-row { display: flex; align-items: flex-end; gap: 8px; }
 .day-row .fld { flex: 1; min-width: 0; }
 .sym-btn {
-  min-height: 44px;
-  padding: 10px 12px;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
   border: 1px solid #7b1fa2;
   background: white;
   color: #7b1fa2;
   border-radius: 8px;
-  font-size: 0.88rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  line-height: 1;
   cursor: pointer;
 }
 .day-sum { color: #888; font-size: 0.8rem; margin-top: 6px; line-height: 1.4; }
@@ -1305,8 +1307,11 @@ function symptomBits(r) {
     [['Arousal'], v('Arousal') && 'arousal ' + v('Arousal')],
     [['Acne'], yes('Acne') ? 'acne' : ''],
     [['Cramps'], yes('Cramps') ? 'cramps' : ''],
-    [['Penetration'], yes('Penetration') ? 'penetration' : ''],
-    [['Protected'], yes('Protected') ? 'protected' : ''],
+    // One item, not two: "protected" means nothing on its own. An old row with
+    // Protected but no Penetration still says so rather than hiding it.
+    [['Penetration', 'Protected'], yes('Penetration')
+      ? 'penetration (' + (yes('Protected') ? 'protected' : 'unprotected') + ')'
+      : yes('Protected') ? 'protected' : ''],
     [['Mood'], v('Mood') && 'mood ' + splitMoods(v('Mood')).join(', ')],
   ].filter(b => b[1]);
 }
@@ -1458,7 +1463,7 @@ function entryScreenHTML(cycles) {
     cards.push(`<div class="${dayCardClass(iso)}" id="day-${iso}">
       <div class="day-head">${escHTML(dayLabel(iso))}${day != null ? ' &middot; Day ' + day : ''}</div>
       <div class="day-row">${fieldHTML(iso, 'Temp', form, ch, true)}${fieldHTML(iso, 'Time', form, ch, true)}
-        <button class="sym-btn" onclick="openPicker('${iso}')">Symptoms</button></div>
+        <button class="sym-btn" onclick="openPicker('${iso}')" aria-label="Symptoms" title="Symptoms">+</button></div>
       <div class="day-sum" id="sum-${iso}">${daySummaryFor(iso)}</div>
       <div class="day-problem" id="prob-${iso}">${escHTML(dayProblem(iso) || '')}</div>
     </div>`);
