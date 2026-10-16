@@ -136,6 +136,20 @@ console.log('\n--- THE LOG TABLE FOR EVERY CYCLE ---');
     cycles.forEach(c => api.buildLogRows(c));
     pass(`buildLogRows runs for all ${cycles.length} cycles`);
   } catch (e) { fail(`buildLogRows threw: ${e.message}`); }
+
+  // Missed days get a greyed "not logged" row each, dated and numbered, so
+  // the days either side of a gap don't read as consecutive. Two days are cut
+  // from the middle of the first cycle, which must already have none missing.
+  const first = cycles[0];
+  const count = html => (html.match(/not logged/g) || []).length;
+  if (count(api.buildLogRows(first)) === 0) pass('an unbroken cycle has no "not logged" rows');
+  else fail('an unbroken cycle drew "not logged" rows');
+  const cut = first.filter((r, i) => i !== 3 && i !== 4);
+  const html = api.buildLogRows(cut);
+  if (count(html) === 2) pass('two missed days draw two "not logged" rows');
+  else fail(`two missed days drew ${count(html)} "not logged" rows`);
+  has(html, `<td>${first[3].Day}</td>\n      <td style="white-space:nowrap">${first[3].Date}</td>`,
+      'a missed row carries its own Day and Date');
 }
 
 console.log('\n--- THE LOG EXIT (writer only) ---');

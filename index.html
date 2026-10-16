@@ -2572,8 +2572,28 @@ function drawTimelineChart(cycles) {
 // Every cell here is sheet text, and since ca5 some of it is text Mike typed
 // into this app minutes earlier. A Note containing "<" broke the table before
 // this; escHTML is the same guard daySummary() already uses on the same values.
+// A day with no row is drawn as a greyed "not logged" line, so a skipped day
+// can't make the days either side of it look consecutive. Worked out here from
+// the Day numbers, never stored — blank rows in the data were the ca1 bug.
+function missedDayRows(prev, r) {
+  const from = parseInt(prev.Day), to = parseInt(r.Day);
+  if (!(prev._date instanceof Date) || !(to - from > 1)) return '';
+  let html = '';
+  for (let n = from + 1; n < to; n++) {
+    const d = new Date(prev._date.getFullYear(), prev._date.getMonth(), prev._date.getDate() + (n - from));
+    html += `<tr class="row-empty">
+      <td>${n}</td>
+      <td style="white-space:nowrap">${MONTHS[d.getMonth()]} ${d.getDate()}</td>
+      <td>&mdash;</td><td class="hide-sm"></td><td></td><td></td><td></td><td></td><td></td>
+      <td class="wrap"><em>not logged</em></td>
+    </tr>`;
+  }
+  return html;
+}
+
 function buildLogRows(cycle) {
-  return cycle.map(r => {
+  return cycle.map((r, i) => {
+    const gap = i > 0 ? missedDayRows(cycle[i - 1], r) : '';
     const c = k => escHTML(r[k] || '');
     const empty = !hasData(r);
     const tag      = phaseTag(r);
@@ -2583,7 +2603,7 @@ function buildLogRows(cycle) {
       : tag === 'Ovulation'
       ? '<span class="tag tag-ovul">Ovulation</span>'
       : '';
-    return `<tr class="${rowClass}">
+    return gap + `<tr class="${rowClass}">
       <td>${c('Day')}</td>
       <td style="white-space:nowrap">${c('Date')}</td>
       <td style="white-space:nowrap">${r.Temp ? parseFloat(r.Temp).toFixed(2) + '&deg;' : '&mdash;'}</td>
