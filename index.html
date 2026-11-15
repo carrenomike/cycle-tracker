@@ -857,16 +857,18 @@ const ENTRY_FIELDS = [
 // in that day's Symptoms panel, in this order. entry-selfcheck asserts every
 // field is in exactly one place — a field neither shows is one nobody can enter.
 const ROW_COLS = ['Temp', 'Time'];
+// Most-used first (by days logged, Nov 2026), related fields kept together.
+// Note is last on purpose: Michael is moving off it onto the real fields.
 const PICKER_SECTIONS = [
   { label: 'Flow',            cols: ['Flow'] },
+  { label: 'Breasts',         cols: ['Breasts'] },
   { label: 'Mucus',           cols: ['Cervical Mucus'] },
   { label: 'Cervix',          cols: ['Cervix Texture', 'Cervix Position'] },
-  { label: 'Breasts',         cols: ['Breasts'] },
-  { label: 'Arousal',         cols: ['Arousal'] },
-  { label: 'Yes / no',        cols: ['Acne', 'Cramps', 'Penetration', 'Protected'] },
+  { label: 'Arousal and sex', cols: ['Arousal', 'Penetration', 'Protected'] },
   { label: 'Mood',            cols: ['Mood'] },
   { label: 'Reading quality', cols: ['Temp Quality', 'Exclude'] },
   { label: 'Markers',         cols: ['Ovulation', 'Cycle Start'] },
+  { label: 'Other',           cols: ['Acne', 'Cramps'] },
   { label: 'Note',            cols: ['Note'] },
 ];
 
@@ -1435,10 +1437,18 @@ function fieldHTML(iso, col, form, changes, showLabel) {
 // lose or invent an edit.
 function pickerHTML(iso) {
   const form = dayForm(iso), ch = dayChanges(iso);
+  // Toggle buttons in a row share one wrapping strip; a section can mix them
+  // with a labelled field (Arousal, then Penetration and Protected).
   const secs = PICKER_SECTIONS.map(sec => {
-    const toggles = sec.cols.every(c => ['flag', 'quality'].indexOf(ENTRY_FIELDS[F_AT(c)].type) >= 0);
-    const inner = sec.cols.map(c => fieldHTML(iso, c, form, ch, sec.cols.length > 1)).join('');
-    return `<div class="pk-sec"><h3>${escHTML(sec.label)}</h3>${toggles ? `<div class="opts">${inner}</div>` : inner}</div>`;
+    let inner = '', run = '';
+    for (const c of sec.cols) {
+      const html = fieldHTML(iso, c, form, ch, sec.cols.length > 1);
+      if (['flag', 'quality'].indexOf(ENTRY_FIELDS[F_AT(c)].type) >= 0) { run += html; continue; }
+      if (run) { inner += `<div class="opts">${run}</div>`; run = ''; }
+      inner += html;
+    }
+    if (run) inner += `<div class="opts">${run}</div>`;
+    return `<div class="pk-sec"><h3>${escHTML(sec.label)}</h3>${inner}</div>`;
   }).join('');
   const fresh = _pickerFresh;
   _pickerFresh = false;

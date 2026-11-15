@@ -171,10 +171,11 @@ console.log('\nevery field has one place: the day row or the Symptoms panel');
     'every field is on the row or in the panel exactly once — none missing, none twice');
   same(E.ROW_COLS, ['Temp', 'Time'], 'the row holds temp and time only');
   same(E.PICKER_SECTIONS.map(s => s.label),
-    ['Flow', 'Mucus', 'Cervix', 'Breasts', 'Arousal', 'Yes / no', 'Mood', 'Reading quality', 'Markers', 'Note'],
-    'the panel sections, in the spec\'s order');
-  same(E.PICKER_SECTIONS.find(s => s.label === 'Yes / no').cols, ['Acne', 'Cramps', 'Penetration', 'Protected'],
-    'the yes/no section');
+    ['Flow', 'Breasts', 'Mucus', 'Cervix', 'Arousal and sex', 'Mood', 'Reading quality', 'Markers', 'Other', 'Note'],
+    'the panel sections, most-used first, Note last');
+  same(E.PICKER_SECTIONS.find(s => s.label === 'Arousal and sex').cols, ['Arousal', 'Penetration', 'Protected'],
+    'Protected sits right after Penetration, which it depends on');
+  same(E.PICKER_SECTIONS.find(s => s.label === 'Other').cols, ['Acne', 'Cramps'], 'the other section');
   const arousal = E.ENTRY_FIELDS.find(f => f.col === 'Arousal');
   same(arousal.labels, ['none', 'low', 'med', 'high'], 'Arousal is none / low / med / high');
   for (const c of ['Acne', 'Cramps', 'Penetration', 'Protected']) {
