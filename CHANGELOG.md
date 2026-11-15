@@ -12,6 +12,8 @@
 
 # Changelog
 
+- **[Fly]** (2026-11-15) **Symptoms panel puts the most-used fields first.** The sections are now ordered by how often you actually use them: Flow, Breasts, Mucus, Cervix, Arousal and sex, Mood, Reading quality, Markers, Other, and Note last. Penetration and Protected moved up beside Arousal; Acne and Cramps moved to a new "Other" section near the bottom. The old "Yes / no" section is gone.
+
 - **[Plan]** (2026-10-16) **Data moved off Google Sheets to Cloudflare.** The app now saves and loads through a new server instead of the Google sheet; both links (yours and Tirzah's) are unchanged, and all 198 days came across matching. The Google sheet is kept as a frozen backup — a stale open copy of the app that tries to save there keeps the entry and says to reload. The Log tab has a new **Download all data** button that saves everything as a spreadsheet file. (Spec: `Docs/Cloudflare Migration Spec.md`.)
 
 - **[Fly]** (2026-10-16) **Missed days show in the Daily Log.** A day you skipped between two logged days now appears in the dashboard's Daily Log table as a faded row with its day number, date and "not logged", so the days either side no longer look back to back. Nothing is saved for these rows — they are just drawn in.
