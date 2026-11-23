@@ -554,6 +554,9 @@ function phaseTag(r) { return isOv(r) ? 'Ovulation' : isBleeding(r) ? 'Blood' : 
 // migrated rows carry no temperature at all; a temp-less day is skipped, never
 // read as a zero and never counted as one of the six or the three.
 const isUsableTemp = r => !!r.Temp && !(r.Exclude || '').trim();
+// What the graphs plot: an excluded reading is a gap, same as a skipped day,
+// so it neither draws a point nor stretches the scale.
+const chartTemp = r => isUsableTemp(r) ? parseFloat(r.Temp) : null;
 
 // Temperatures compare in integer hundredths, never in floating point:
 // 97.88 + 0.1 is 97.97999999999999, so 97.98 tests as ABOVE a coverline it
@@ -2377,7 +2380,7 @@ function drawTimelineChart(cycles) {
 
   const allRows = cycles.flat();
   const labels  = allRows.map(r => r.Date);
-  const temps   = allRows.map(r => r.Temp ? parseFloat(r.Temp) : null);
+  const temps   = allRows.map(chartTemp);
 
   // Per-cycle coverline: calculated value for cycles with an ovulation marker, null otherwise.
   // Chart.js with spanGaps:false will draw a separate segment per cycle automatically.
@@ -2391,7 +2394,7 @@ function drawTimelineChart(cycles) {
     phaseTag(r) === 'Ovulation' ? '#ab47bc' : '#1e88e5'
   );
   const ptSizes = allRows.map((r, i) => {
-    if (!r.Temp) return 0;
+    if (temps[i] == null) return 0;
     if (phaseTag(r)) return 3.5;
     // Isolated only if there's no data to connect to anywhere on either side
     // (gaps are bridged with a dashed line below, so a point only needs a
@@ -2635,13 +2638,10 @@ function drawOverlayChart(cycles) {
   // consecutive days draw a solid line. Bridged gaps are drawn separately
   // below as dedicated dashed mini-segments, so the two never conflict.
   const mainDatasets = cycles.map((cycle, i) => {
-    const lastTempIdx = cycle.reduce((max, r, j) => r.Temp ? j : max, -1);
+    const lastTempIdx = cycle.reduce((max, r, j) => isUsableTemp(r) ? j : max, -1);
     const display = lastTempIdx >= 0 ? cycle.slice(0, lastTempIdx + 1) : cycle;
 
-    const data = labels.map((_, j) => {
-      const row = display[j];
-      return row && row.Temp ? parseFloat(row.Temp) : null;
-    });
+    const data = labels.map((_, j) => display[j] ? chartTemp(display[j]) : null);
 
     // Red dot for blood days, cycle color otherwise
     const ptColors = labels.map((_, j) => {
@@ -2649,8 +2649,7 @@ function drawOverlayChart(cycles) {
       return (row && phaseTag(row) === 'Blood') ? '#e53935' : colors[i % colors.length];
     });
     const ptSizes = labels.map((_, j) => {
-      const row = display[j];
-      if (!row || !row.Temp) return 0;
+      if (data[j] == null) return 0;
       if (cycle[j] && phaseTag(cycle[j]) === 'Blood') return 3.5;
       // Isolated only if there's no data to connect to anywhere on either
       // side (gaps are always bridged with a dashed line below).
@@ -2708,7 +2707,7 @@ function drawOverlayChart(cycles) {
 
   const datasets = [...mainDatasets, ...bridgeDatasets];
 
-  const allTemps = cycles.flatMap(c => c.map(r => r.Temp ? parseFloat(r.Temp) : null));
+  const allTemps = cycles.flatMap(c => c.map(chartTemp));
   const { min, max } = yRange([allTemps]);
 
   // Inline plugin to draw vertical ovulation bands behind the data
